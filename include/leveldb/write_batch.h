@@ -26,6 +26,10 @@
 #include "leveldb/export.h"
 #include "leveldb/status.h"
 
+#ifndef LSMV
+#define LSMV
+#endif // LSMV
+
 namespace leveldb {
 
 class Slice;
@@ -77,6 +81,59 @@ class LEVELDB_EXPORT WriteBatch {
 
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
 };
+
+#ifdef LSMV
+// A WriteBatch that holds multi-version data entries.
+class LEVELDB_EXPORT WriteBatchMV : public WriteBatch {
+ public:
+  class LEVELDB_EXPORT HandlerMV : public WriteBatch::Handler {
+   public:
+    ~HandlerMV() override;
+    virtual void Put(const Slice& key, const Slice& lo, const Slice& hi,
+                     const Slice& value) = 0;
+    virtual void Delete(const Slice& key, const Slice& lo, const Slice& hi) = 0;
+  };
+
+  WriteBatchMV();
+
+  // Intentionally copyable.
+  WriteBatchMV(const WriteBatchMV&) = default;
+  WriteBatchMV& operator=(const WriteBatchMV&) = default;
+
+  ~WriteBatchMV();
+
+  // Store the mapping "key->value" in the database.
+  void PutMV(const Slice& key, const Slice& lo, const Slice& hi,
+             const Slice& value) ;
+
+  // If the database contains a mapping for "key", erase it.  Else do nothing.
+  void DeleteMV(const Slice& key, const Slice& lo, const Slice& hi);
+
+  // Clear all updates buffered in this batch.
+//  void Clear();
+
+  // The size of the database changes caused by this batch.
+  //
+  // This number is tied to implementation details, and may change across
+  // releases. It is intended for LevelDB usage metrics.
+//  size_t ApproximateSize() const;
+
+  // Copies the operations in "source" to this batch.
+  //
+  // This runs in O(source size) time. However, the constant factor is better
+  // than calling Iterate() over the source batch with a Handler that replicates
+  // the operations into this batch.
+//  void Append(const WriteBatch& source);
+
+  // Support for iterating over the contents of a batch.
+  Status IterateMV(HandlerMV* handler) const;
+
+ private:
+  friend class WriteBatchInternal;
+
+  std::string rep_;  // See comment in write_batch.cc for the format of rep_
+};
+#endif
 
 }  // namespace leveldb
 

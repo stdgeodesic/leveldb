@@ -18,7 +18,9 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+
 #include "leveldb/db.h"
+
 #include "util/coding.h"
 
 namespace leveldb {
@@ -146,5 +148,110 @@ void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   assert(src->rep_.size() >= kHeader);
   dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
 }
+
+#ifdef LSMV
+// WriteBatch with Multi-Version Support
+//
+// WriteBatchMV::rep_ :=
+//    sequence: fixed64
+//    count: fixed32
+//    data: record[count]
+// record :=
+//    kTypeValue varstring varstring varstring varstring         |
+//    kTypeDeletion varstring varstring varstring
+// varstring :=
+//    len: varint32
+//    data: uint8[len]
+WriteBatchMV::WriteBatchMV() { Clear(); }
+
+WriteBatchMV::~WriteBatchMV() = default;
+
+WriteBatchMV::HandlerMV::~HandlerMV() = default;
+
+void WriteBatchMV::PutMV(const Slice& key, const Slice& lo, const Slice& hi,
+                         const Slice& value) {
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeValue));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutLengthPrefixedSlice(&rep_, lo);
+  PutLengthPrefixedSlice(&rep_, hi);
+  PutLengthPrefixedSlice(&rep_, value);
+}
+
+void WriteBatchMV::DeleteMV(const Slice& key, const Slice& lo,
+                            const Slice& hi) {
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeDeletion));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutLengthPrefixedSlice(&rep_, lo);
+  PutLengthPrefixedSlice(&rep_, hi);
+}
+
+Status WriteBatchMV::IterateMV(HandlerMV* handler) const {
+  Slice input(rep_);
+  if (input.size() < kHeader) {
+    return Status::Corruption("malformed WriteBatch (too small)");
+  }
+
+  input.remove_prefix(kHeader);
+  Slice key, lo, hi, value;
+  int found = 0;
+  while (!input.empty()) {
+    found++;
+    char tag = input[0];
+    input.remove_prefix(1);
+    switch (tag) {
+      case kTypeValue:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetLengthPrefixedSlice(&input, &lo) &&
+            GetLengthPrefixedSlice(&input, &hi) &&
+            GetLengthPrefixedSlice(&input, &value)) {
+          handler->Put(key, lo, hi, value);
+        } else {
+          return Status::Corruption("bad WriteBatch Put");
+        }
+        break;
+      case kTypeDeletion:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetLengthPrefixedSlice(&input, &lo) &&
+            GetLengthPrefixedSlice(&input, &hi)) {
+          handler->Delete(key, lo, hi);
+        } else {
+          return Status::Corruption("bad WriteBatch Delete");
+        }
+        break;
+      default:
+        return Status::Corruption("unknown WriteBatch tag");
+    }
+  }
+  if (found != WriteBatchInternal::Count(this)) {
+    return Status::Corruption("WriteBatch has wrong count");
+  } else {
+    return Status::OK();
+  }
+}
+
+namespace {
+class MemTableInserterMV : public WriteBatchMV::HandlerMV {
+ public:
+  SequenceNumber sequence_;
+  MemTable* mem_;
+
+  void Put(const Slice& key, const Slice& lo, const Slice& hi,
+           const Slice& value) override {
+    // TODO
+    mem_->Add(sequence_, kTypeValue, key, value);
+    sequence_++;
+  }
+  void Delete(const Slice& key, const Slice& lo, const Slice& hi) override {
+    // TODO
+    mem_->Add(sequence_, kTypeDeletion, key, Slice());
+    sequence_++;
+  }
+};
+
+}  // namespace
+
+#endif  // #ifdef LSMV
 
 }  // namespace leveldb
