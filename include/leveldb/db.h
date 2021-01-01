@@ -12,6 +12,21 @@
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
 
+#ifndef LSMV
+#define LSMV
+#include <ctime>
+#include <chrono>
+using std::chrono::duration_cast;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+using std::chrono::system_clock;
+#endif
+
+#ifndef DEBUG
+#define DEBUG
+#include <iostream>
+#endif
+
 namespace leveldb {
 
 // Update CMakeLists.txt if you change these
@@ -22,6 +37,9 @@ struct Options;
 struct ReadOptions;
 struct WriteOptions;
 class WriteBatch;
+#ifdef LSMV
+class WriteBatchMV;
+#endif
 
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
@@ -65,6 +83,11 @@ class LEVELDB_EXPORT DB {
   // Note: consider setting options.sync = true.
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) = 0;
+#ifdef LSMV
+  // Put entry with timestamp info.
+  virtual Status PutMV(const WriteOptions& options, const Slice& key,
+                       const Slice& value);
+#endif
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
@@ -76,6 +99,9 @@ class LEVELDB_EXPORT DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+#ifdef LSMV
+  virtual Status WriteMV(const WriteOptions& options, WriteBatchMV* updates);
+#endif
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.

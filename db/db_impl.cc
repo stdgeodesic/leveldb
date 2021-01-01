@@ -51,6 +51,19 @@ struct DBImpl::Writer {
   port::CondVar cv;
 };
 
+#ifdef LSMV
+struct DBImpl::WriterMV {
+  explicit WriterMV(port::Mutex* mu)
+      : batch(nullptr), sync(false), done(false), cv(mu) {}
+
+  Status status;
+  WriteBatchMV* batch;
+  bool sync;
+  bool done;
+  port::CondVar cv;
+};
+#endif
+
 struct DBImpl::CompactionState {
   // Files produced by compaction
   struct Output {
@@ -1265,6 +1278,87 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   return status;
 }
 
+#ifdef LSMV
+Status DBImpl::WriteMV(const WriteOptions& options, WriteBatchMV* updates) {
+  WriterMV w(&mutex_);
+  w.batch = updates;
+  w.sync = options.sync;
+  w.done = false;
+
+  MutexLock l(&mutex_);
+  writers_mv_.push_back(&w);
+  while (!w.done && &w != writers_mv_.front()) {
+    w.cv.Wait();
+  }
+  if (w.done) {
+    return w.status;
+  }
+
+  // May temporarily unlock and wait.
+  Status status = MakeRoomForWriteMV(updates == nullptr);
+  uint64_t last_sequence = versions_->LastSequence();
+  WriterMV* last_writer = &w;
+  if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
+    WriteBatchMV* write_batch = BuildBatchGroupMV(&last_writer);
+    WriteBatchMVInternal::SetSequence(write_batch, last_sequence + 1);
+    last_sequence += WriteBatchMVInternal::Count(write_batch);
+
+    // Add to log and apply to memtable.  We can release the lock
+    // during this phase since &w is currently responsible for logging
+    // and protects against concurrent loggers and concurrent writes
+    // into mem_.
+    {
+      mutex_.Unlock();
+      status = log_->AddRecord(WriteBatchMVInternal::Contents(write_batch));
+#ifdef DEBUG
+      std::cout << "WAL status:" << status.ok();
+#endif
+      bool sync_error = false;
+      if (status.ok() && options.sync) {
+        status = logfile_->Sync();
+        if (!status.ok()) {
+          sync_error = true;
+        }
+      }
+      if (status.ok()) {
+        status = WriteBatchMVInternal::InsertInto(write_batch, mem_);
+#ifdef DEBUG
+        std::cout << " Inserting... status:" << status.ok() << std::endl;
+#endif
+      }
+      mutex_.Lock();
+      if (sync_error) {
+        // The state of the log file is indeterminate: the log record we
+        // just added may or may not show up when the DB is re-opened.
+        // So we force the DB into a mode where all future writes fail.
+        RecordBackgroundError(status);
+      }
+    }
+    if (write_batch == tmp_batch_mv_) tmp_batch_mv_->Clear();
+
+    versions_->SetLastSequence(last_sequence);
+  }
+
+  while (true) {
+    WriterMV* ready = writers_mv_.front();
+    writers_mv_.pop_front();
+    if (ready != &w) {
+      ready->status = status;
+      ready->done = true;
+      ready->cv.Signal();
+    }
+    if (ready == last_writer) break;
+  }
+
+  // Notify new head of write queue
+  if (!writers_mv_.empty()) {
+    writers_mv_.front()->cv.Signal();
+  }
+
+  return status;
+}
+#endif // ifdef LSMV
+
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
@@ -1314,6 +1408,56 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   }
   return result;
 }
+
+#ifdef LSMV
+WriteBatchMV* DBImpl::BuildBatchGroupMV(WriterMV** last_writer) {
+  mutex_.AssertHeld();
+  assert(!writers_mv_.empty());
+  WriterMV* first = writers_mv_.front();
+  WriteBatchMV* result = first->batch;
+  assert(result != nullptr);
+
+  size_t size = WriteBatchMVInternal::ByteSize(first->batch);
+
+  // Allow the group to grow up to a maximum size, but if the
+  // original write is small, limit the growth so we do not slow
+  // down the small write too much.
+  size_t max_size = 1 << 20;
+  if (size <= (128 << 10)) {
+    max_size = size + (128 << 10);
+  }
+
+  *last_writer = first;
+  std::deque<WriterMV*>::iterator iter = writers_mv_.begin();
+  ++iter;  // Advance past "first"
+  for (; iter != writers_mv_.end(); ++iter) {
+    WriterMV* w = *iter;
+    if (w->sync && !first->sync) {
+      // Do not include a sync write into a batch handled by a non-sync write.
+      break;
+    }
+
+    if (w->batch != nullptr) {
+      size += WriteBatchMVInternal::ByteSize(w->batch);
+      if (size > max_size) {
+        // Do not make batch too big
+        break;
+      }
+
+      // Append to *result
+      if (result == first->batch) {
+        // Switch to temporary batch instead of disturbing caller's batch
+        result = tmp_batch_mv_;
+        assert(WriteBatchMVInternal::Count(result) == 0);
+        WriteBatchMVInternal::Append(result, first->batch);
+      }
+      WriteBatchMVInternal::Append(result, w->batch);
+    }
+    *last_writer = w;
+  }
+  return result;
+}
+#endif
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
@@ -1378,6 +1522,70 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   }
   return s;
 }
+
+#ifdef LSMV
+Status DBImpl::MakeRoomForWriteMV(bool force) {
+  mutex_.AssertHeld();
+  assert(!writers_mv_.empty());
+  bool allow_delay = !force;
+  Status s;
+  while (true) {
+    if (!bg_error_.ok()) {
+      // Yield previous error
+      s = bg_error_;
+      break;
+    } else if (allow_delay && versions_->NumLevelFiles(0) >=
+                                  config::kL0_SlowdownWritesTrigger) {
+      // We are getting close to hitting a hard limit on the number of
+      // L0 files.  Rather than delaying a single write by several
+      // seconds when we hit the hard limit, start delaying each
+      // individual write by 1ms to reduce latency variance.  Also,
+      // this delay hands over some CPU to the compaction thread in
+      // case it is sharing the same core as the writer.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(1000);
+      allow_delay = false;  // Do not delay a single write more than once
+      mutex_.Lock();
+    } else if (!force &&
+               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+      // There is room in current memtable
+      break;
+    } else if (imm_ != nullptr) {
+      // We have filled up the current memtable, but the previous
+      // one is still being compacted, so we wait.
+      Log(options_.info_log, "Current memtable full; waiting...\n");
+      background_work_finished_signal_.Wait();
+    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
+      // There are too many level-0 files.
+      Log(options_.info_log, "Too many L0 files; waiting...\n");
+      background_work_finished_signal_.Wait();
+    } else {
+      // Attempt to switch to a new memtable and trigger compaction of old
+      assert(versions_->PrevLogNumber() == 0);
+      uint64_t new_log_number = versions_->NewFileNumber();
+      WritableFile* lfile = nullptr;
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+      if (!s.ok()) {
+        // Avoid chewing through file number space in a tight loop.
+        versions_->ReuseFileNumber(new_log_number);
+        break;
+      }
+      delete log_;
+      delete logfile_;
+      logfile_ = lfile;
+      logfile_number_ = new_log_number;
+      log_ = new log::Writer(lfile);
+      imm_ = mem_;
+      has_imm_.store(true, std::memory_order_release);
+      mem_ = new MemTable(internal_comparator_);
+      mem_->Ref();
+      force = false;  // Do not force another compaction if have room
+      MaybeScheduleCompaction();
+    }
+  }
+  return s;
+}
+#endif
 
 bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   value->clear();
@@ -1466,6 +1674,23 @@ Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
   batch.Put(key, value);
   return Write(opt, &batch);
 }
+
+#ifdef LSMV
+ Status DB::PutMV(const WriteOptions& opt, const Slice& key, const Slice& value) {
+   WriteBatchMV batch;
+   // Get current time
+   ValidTime current_time = duration_cast<milliseconds>
+       (system_clock::now().time_since_epoch()).count();
+   Slice lo = Slice(std::to_string(current_time));
+   Slice hi = Slice(std::to_string(EmptyTime));
+   batch.Put(key, lo, hi, value);
+   return WriteMV(opt, &batch);
+ }
+ Status DB::WriteMV(const WriteOptions& options, WriteBatchMV* updates) {
+   // TODO
+   return Status::OK();
+ }
+#endif // LSMV
 
 Status DB::Delete(const WriteOptions& opt, const Slice& key) {
   WriteBatch batch;

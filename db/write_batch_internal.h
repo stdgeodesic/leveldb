@@ -40,6 +40,34 @@ class WriteBatchInternal {
   static void Append(WriteBatch* dst, const WriteBatch* src);
 };
 
+#ifdef LSMV
+class WriteBatchMVInternal {
+ public:
+  // Return the number of entries in the batch.
+  static int Count(const WriteBatchMV* batch);
+
+  // Set the count for the number of entries in the batch.
+  static void SetCount(WriteBatchMV* batch, int n);
+
+  // Return the sequence number for the start of this batch.
+  static SequenceNumber Sequence(const WriteBatchMV* batch);
+
+  // Store the specified number as the sequence number for the start of
+  // this batch.
+  static void SetSequence(WriteBatchMV* batch, SequenceNumber seq);
+
+  static Slice Contents(const WriteBatchMV* batch) { return Slice(batch->rep_); }
+
+  static size_t ByteSize(const WriteBatchMV* batch) { return batch->rep_.size(); }
+
+  static void SetContents(WriteBatchMV* batch, const Slice& contents);
+
+  static Status InsertInto(const WriteBatchMV* batch, MemTable* memtable);
+
+  static void Append(WriteBatchMV* dst, const WriteBatchMV* src);
+};
+#endif // LSMV
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_DB_WRITE_BATCH_INTERNAL_H_

@@ -166,28 +166,16 @@ WriteBatchMV::WriteBatchMV() { Clear(); }
 
 WriteBatchMV::~WriteBatchMV() = default;
 
-WriteBatchMV::HandlerMV::~HandlerMV() = default;
+WriteBatchMV::Handler::~Handler() = default;
 
-void WriteBatchMV::PutMV(const Slice& key, const Slice& lo, const Slice& hi,
-                         const Slice& value) {
-  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeValue));
-  PutLengthPrefixedSlice(&rep_, key);
-  PutLengthPrefixedSlice(&rep_, lo);
-  PutLengthPrefixedSlice(&rep_, hi);
-  PutLengthPrefixedSlice(&rep_, value);
+void WriteBatchMV::Clear() {
+  rep_.clear();
+  rep_.resize(kHeader);
 }
 
-void WriteBatchMV::DeleteMV(const Slice& key, const Slice& lo,
-                            const Slice& hi) {
-  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeDeletion));
-  PutLengthPrefixedSlice(&rep_, key);
-  PutLengthPrefixedSlice(&rep_, lo);
-  PutLengthPrefixedSlice(&rep_, hi);
-}
+size_t WriteBatchMV::ApproximateSize() const { return rep_.size(); }
 
-Status WriteBatchMV::IterateMV(HandlerMV* handler) const {
+Status WriteBatchMV::Iterate(Handler* handler) const {
   Slice input(rep_);
   if (input.size() < kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
@@ -224,15 +212,54 @@ Status WriteBatchMV::IterateMV(HandlerMV* handler) const {
         return Status::Corruption("unknown WriteBatch tag");
     }
   }
-  if (found != WriteBatchInternal::Count(this)) {
+  if (found != WriteBatchMVInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
   }
 }
 
+int WriteBatchMVInternal::Count(const WriteBatchMV* b) {
+  return DecodeFixed32(b->rep_.data() + 8);
+}
+
+void WriteBatchMVInternal::SetCount(WriteBatchMV* b, int n) {
+  EncodeFixed32(&b->rep_[8], n);
+}
+
+SequenceNumber WriteBatchMVInternal::Sequence(const WriteBatchMV* b) {
+  return SequenceNumber(DecodeFixed64(b->rep_.data()));
+}
+
+void WriteBatchMVInternal::SetSequence(WriteBatchMV* b, SequenceNumber seq) {
+  EncodeFixed64(&b->rep_[0], seq);
+}
+
+void WriteBatchMV::Put(const Slice& key, const Slice& lo, const Slice& hi,
+                         const Slice& value) {
+  WriteBatchMVInternal::SetCount(this, WriteBatchMVInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeValue));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutLengthPrefixedSlice(&rep_, lo);
+  PutLengthPrefixedSlice(&rep_, hi);
+  PutLengthPrefixedSlice(&rep_, value);
+}
+
+void WriteBatchMV::Delete(const Slice& key, const Slice& lo,
+                            const Slice& hi) {
+  WriteBatchMVInternal::SetCount(this, WriteBatchMVInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeDeletion));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutLengthPrefixedSlice(&rep_, lo);
+  PutLengthPrefixedSlice(&rep_, hi);
+}
+
+void WriteBatchMV::Append(const WriteBatchMV& source) {
+  WriteBatchMVInternal::Append(this, &source);
+}
+
 namespace {
-class MemTableInserterMV : public WriteBatchMV::HandlerMV {
+class MemTableInserterMV : public WriteBatchMV::Handler {
  public:
   SequenceNumber sequence_;
   MemTable* mem_;
@@ -252,6 +279,24 @@ class MemTableInserterMV : public WriteBatchMV::HandlerMV {
 
 }  // namespace
 
-#endif  // #ifdef LSMV
+Status WriteBatchMVInternal::InsertInto(const WriteBatchMV* b, MemTable* memtable) {
+  MemTableInserterMV inserter;
+  inserter.sequence_ = WriteBatchMVInternal::Sequence(b);
+  inserter.mem_ = memtable;
+  return b->Iterate(&inserter);
+}
+
+void WriteBatchMVInternal::SetContents(WriteBatchMV* b, const Slice& contents) {
+  assert(contents.size() >= kHeader);
+  b->rep_.assign(contents.data(), contents.size());
+}
+
+void WriteBatchMVInternal::Append(WriteBatchMV* dst, const WriteBatchMV* src) {
+  SetCount(dst, Count(dst) + Count(src));
+  assert(src->rep_.size() >= kHeader);
+  dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
+}
+
+#endif  // LSMV
 
 }  // namespace leveldb

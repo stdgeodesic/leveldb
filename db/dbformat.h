@@ -66,6 +66,11 @@ typedef uint64_t SequenceNumber;
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
+#ifdef LSMV
+typedef time_t ValidTime;
+static const ValidTime EmptyTime = 0x0;
+#endif
+
 struct ParsedInternalKey {
   Slice user_key;
   SequenceNumber sequence;

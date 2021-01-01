@@ -40,6 +40,9 @@ class DBImpl : public DB {
              const Slice& value) override;
   Status Delete(const WriteOptions&, const Slice& key) override;
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
+#ifdef LSMV
+  Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) override;
+#endif
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override;
   Iterator* NewIterator(const ReadOptions&) override;
@@ -75,6 +78,9 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
+#ifdef LSMV
+  struct WriterMV;
+#endif
 
   // Information for a manual compaction
   struct ManualCompaction {
@@ -134,6 +140,12 @@ class DBImpl : public DB {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   WriteBatch* BuildBatchGroup(Writer** last_writer)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+#ifdef LSMV
+  Status MakeRoomForWriteMV(bool force /* compact even if there is room? */)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  WriteBatchMV* BuildBatchGroupMV(WriterMV** last_writer)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+#endif
 
   void RecordBackgroundError(const Status& s);
 
@@ -185,6 +197,10 @@ class DBImpl : public DB {
   // Queue of writers.
   std::deque<Writer*> writers_ GUARDED_BY(mutex_);
   WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
+#ifdef LSMV
+  std::deque<WriterMV*> writers_mv_ GUARDED_BY(mutex_);
+  WriteBatchMV* tmp_batch_mv_ GUARDED_BY(mutex_);
+#endif
 
   SnapshotList snapshots_ GUARDED_BY(mutex_);
 
