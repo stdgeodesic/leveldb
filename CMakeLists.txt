@@ -382,6 +382,8 @@ if(LEVELDB_BUILD_TESTS)
     else (WIN32)
       leveldb_test("util/env_posix_test.cc")
     endif (WIN32)
+
+    leveldb_test("tests/demo_test.cc")
   endif(NOT BUILD_SHARED_LIBS)
 endif(LEVELDB_BUILD_TESTS)
 
