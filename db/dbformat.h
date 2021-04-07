@@ -14,6 +14,7 @@
 #include "leveldb/filter_policy.h"
 #include "leveldb/slice.h"
 #include "leveldb/table_builder.h"
+
 #include "util/coding.h"
 #include "util/logging.h"
 
@@ -47,6 +48,7 @@ static const int kReadBytesPeriod = 1048576;
 }  // namespace config
 
 class InternalKey;
+class MVInternalKey;
 
 // Value types encoded as the last component of internal keys.
 // DO NOT CHANGE THESE ENUM VALUES: they are embedded in the on-disk
@@ -61,6 +63,9 @@ enum ValueType { kTypeDeletion = 0x0, kTypeValue = 0x1 };
 static const ValueType kValueTypeForSeek = kTypeValue;
 
 typedef uint64_t SequenceNumber;
+
+// MVLevelDB: valid time type
+typedef uint64_t ValidTime;
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
@@ -77,13 +82,31 @@ struct ParsedInternalKey {
   std::string DebugString() const;
 };
 
+struct ParsedMVInternalKey {
+  Slice user_key;
+  SequenceNumber sequence;
+  ValueType type;
+  ValidTime valid_time;  // Start valid time
+
+  ParsedMVInternalKey() {}
+  ParsedMVInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t,
+                        ValidTime vt)
+  : user_key(u), sequence(seq), type(t), valid_time(vt) {}
+};
+
 // Return the length of the encoding of "key".
 inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
   return key.user_key.size() + 8;
 }
 
+inline size_t MVInternalKeyEncodingLength(const ParsedMVInternalKey& key) {
+  return key.user_key.size() + 16;
+}
+
 // Append the serialization of "key" to *result.
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
+
+void AppendMVInternalKey(std::string* result, const ParsedMVInternalKey& key);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
@@ -91,10 +114,17 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 // On error, returns false, leaves "*result" in an undefined state.
 bool ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result);
 
+bool ParseMVInternalKey(const Slice& mv_internal_key, ParsedMVInternalKey* result);
+
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   return Slice(internal_key.data(), internal_key.size() - 8);
+}
+
+inline Slice MVExtractUserKey(const Slice& mv_internal_key) {
+  assert(mv_internal_key.size() >= 16);
+  return Slice(mv_internal_key.data(), mv_internal_key.size() - 16);
 }
 
 // A comparator for internal keys that uses a specified comparator for
@@ -163,6 +193,37 @@ class InternalKey {
   std::string DebugString() const;
 };
 
+class MVInternalKey {
+ private:
+  std::string rep_;
+
+ public:
+  MVInternalKey() {}  // Leave rep_ as empty to indicate it is valid
+  MVInternalKey(const Slice& user_key, SequenceNumber s, ValueType t,
+                ValidTime vt) {
+    AppendMVInternalKey(&rep_, ParsedMVInternalKey(user_key, s, t, vt));
+  }
+
+  bool DecodeFrom(const Slice& s) {
+    rep_.assign(s.data(), s.size());
+    return !rep_.empty();
+  }
+
+  Slice Encode() const {
+    assert(!rep_.empty());
+    return rep_;
+  }
+
+  Slice user_key() const { return MVExtractUserKey(rep_); }
+
+  void SetFrom(const ParsedMVInternalKey& p) {
+    rep_.clear();
+    AppendMVInternalKey(&rep_, p);
+  }
+
+  void Clear() { rep_.clear(); }
+};
+
 inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
@@ -177,6 +238,19 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   result->user_key = Slice(internal_key.data(), n - 8);
+  return (c <= static_cast<uint8_t>(kTypeValue));
+}
+
+inline bool ParseMVInternalKey(const Slice& mv_internal_key,
+                        ParsedMVInternalKey* result) {
+  const size_t n = mv_internal_key.size();
+  if (n < 16) return false;
+  uint64_t num = DecodeFixed64(mv_internal_key.data() + n - 16);
+  uint8_t c = num & 0xff;
+  result->sequence = num >> 8;
+  result->type = static_cast<ValueType>(c);
+  result->user_key = Slice(mv_internal_key.data(), n - 16);
+  result->valid_time = DecodeFixed64(mv_internal_key.data() + n - 8);
   return (c <= static_cast<uint8_t>(kTypeValue));
 }
 
@@ -216,6 +290,37 @@ class LookupKey {
 };
 
 inline LookupKey::~LookupKey() {
+  if (start_ != space_) delete[] start_;
+}
+
+class MVLookupKey {
+ public:
+  MVLookupKey(const Slice& user_key, SequenceNumber sequence,
+              ValidTime t);
+
+  MVLookupKey(const MVLookupKey&) = delete;
+  MVLookupKey& operator=(const MVLookupKey&) = delete;
+
+  ~MVLookupKey();
+
+  // Return a key suitable for lookup in a MemTable.
+  Slice memtable_key() const { return Slice(start_, end_ - start_); }
+
+  // Return an internal key (suitable for passing to an internal iterator)
+  Slice internal_key() const { return Slice(kstart_, end_ - kstart_); }
+
+  // Return the user key
+  // 16 = sizeof (seq + tag + ValidTime)
+  Slice user_key() const { return Slice(kstart_, end_ - kstart_ - 16); }
+
+ private:
+  const char* start_;
+  const char* kstart_;
+  const char* end_;
+  char space_[200]; // Avoid allocation for short keys
+};
+
+inline MVLookupKey::~MVLookupKey() {
   if (start_ != space_) delete[] start_;
 }
 

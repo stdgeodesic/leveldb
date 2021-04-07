@@ -22,6 +22,11 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
+void AppendMVInternalKey(std::string* result, const ParsedMVInternalKey& key) {
+  result->append(key.user_key.data(), key.user_key.size());
+  PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+  PutFixed64(result, key.valid_time);
+}
 
 std::string ParsedInternalKey::DebugString() const {
   std::ostringstream ss;
@@ -129,6 +134,28 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   std::memcpy(dst, user_key.data(), usize);
   dst += usize;
   EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  dst += 8;
+  end_ = dst;
+}
+
+MVLookupKey::MVLookupKey(const Slice& user_key, SequenceNumber s,
+                         ValidTime t) {
+  size_t usize = user_key.size();
+  size_t needed = usize + 21;  // varint:5, seq/tag:8, ValidTime:8
+  char* dst;
+  if (needed <= sizeof(space_)) {
+    dst = space_;
+  } else {
+    dst = new char[needed];
+  }
+  start_ = dst;
+  dst = EncodeVarint32(dst, usize + 16);
+  kstart_ = dst;
+  std::memcpy(dst, user_key.data(), usize);
+  dst += usize;
+  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  dst += 8;
+  EncodeFixed64(dst, t);
   dst += 8;
   end_ = dst;
 }
