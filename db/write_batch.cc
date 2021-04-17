@@ -18,7 +18,9 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+
 #include "leveldb/db.h"
+
 #include "util/coding.h"
 
 namespace leveldb {
@@ -146,5 +148,94 @@ void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   assert(src->rep_.size() >= kHeader);
   dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
 }
+
+// MVLevelDB implementations of internal functions to setup WriteBatch
+Status WriteBatchMVInternal::InsertInto(const WriteBatchMV* b, MemTable* memtable) {
+  // TODO
+  return Status::OK();
+}
+
+void WriteBatchMVInternal::SetContents(WriteBatchMV* b, const Slice& contents) {
+  assert(contents.size() >= kHeader);
+  b->rep_.assign(contents.data(), contents.size());
+}
+
+void WriteBatchMVInternal::Append(WriteBatchMV* dst, const WriteBatchMV* src) {
+  SetCount(dst, Count(dst) + Count(src));
+  assert(src->rep_.size() >> kHeader);
+  dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
+}
+
+
+// MVLevelDB
+WriteBatchMV::WriteBatchMV() { Clear(); }
+WriteBatchMV::~WriteBatchMV() = default;
+WriteBatchMV::Handler::~Handler() = default;
+
+void WriteBatchMV::Clear() {
+  rep_.clear();
+  rep_.resize(kHeader);
+}
+
+size_t WriteBatchMV::ApproximateSize() const { return rep_.size(); }
+
+Status WriteBatchMV::Iterate(Handler* handler) const {
+  // TODO
+  return Status::OK();
+}
+
+int WriteBatchMVInternal::Count(const WriteBatchMV* b) {
+  return DecodeFixed32(b->rep_.data() + 8);
+}
+
+void WriteBatchMVInternal::SetCount(WriteBatchMV* b, int n) {
+  EncodeFixed32(&b->rep_[8], n);
+}
+
+SequenceNumber WriteBatchMVInternal::Sequence(const WriteBatchMV* b) {
+  return SequenceNumber(DecodeFixed64(b->rep_.data()));
+}
+
+void WriteBatchMVInternal::SetSequence(WriteBatchMV* b, SequenceNumber seq) {
+  EncodeFixed64(&b->rep_[0], seq);
+}
+
+void WriteBatchMV::Put(const Slice& key, const ValidTime vt, const Slice& value) {
+  WriteBatchMVInternal::SetCount(this,
+                                 WriteBatchMVInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeValue));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutFixed64(&rep_, vt);
+  PutLengthPrefixedSlice(&rep_, value);
+}
+
+void WriteBatchMV::Delete(const Slice& key, const ValidTime vt) {
+  WriteBatchMVInternal::SetCount(this,
+                                 WriteBatchMVInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeDeletion));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutFixed64(&rep_, vt);
+}
+
+void WriteBatchMV::Append(const WriteBatchMV& source) {
+  WriteBatchMVInternal::Append(this, &source);
+}
+
+namespace {
+class MemTableInserterMV : public WriteBatchMV::Handler {
+ public:
+  SequenceNumber sequence_;
+  MemTable* mem_;
+
+  void Put(const Slice &key, ValidTime vt, const Slice &value) override {
+    // TODO
+  }
+
+  void Delete(const Slice &key, ValidTime vt) override {
+    // TODO
+  }
+};
+
+}  // namespace
 
 }  // namespace leveldb

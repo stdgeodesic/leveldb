@@ -26,6 +26,8 @@
 #include "leveldb/export.h"
 #include "leveldb/status.h"
 
+#include "db/dbformat.h"  // MVLevelDB: import type ValidTime
+
 namespace leveldb {
 
 class Slice;
@@ -76,6 +78,37 @@ class LEVELDB_EXPORT WriteBatch {
   friend class WriteBatchInternal;
 
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
+};
+
+class LEVELDB_EXPORT WriteBatchMV {
+ public:
+  class LEVELDB_EXPORT Handler {
+   public:
+    virtual ~Handler();
+    virtual void Put(const Slice& key, ValidTime vt, const Slice& value) = 0;
+    virtual void Delete(const Slice& key, ValidTime vt) = 0;
+  };
+
+  WriteBatchMV();
+
+  WriteBatchMV(const WriteBatchMV&) = default;
+  WriteBatchMV& operator=(const WriteBatchMV&) = default;
+
+  ~WriteBatchMV();
+
+  void Put(const Slice& key, const ValidTime vt, const Slice& value);
+  void Delete(const Slice& key, const ValidTime vt);
+  void Clear();
+
+  size_t ApproximateSize() const;
+  void Append(const WriteBatchMV& source);
+
+  Status Iterate(Handler* handler) const;
+
+ private:
+  friend class WriteBatchMVInternal;
+
+  std::string rep_;
 };
 
 }  // namespace leveldb

@@ -48,6 +48,9 @@ std::string InternalKey::DebugString() const {
 const char* InternalKeyComparator::Name() const {
   return "leveldb.InternalKeyComparator";
 }
+const char* MVInternalKeyComparator::Name() const {
+  return "leveldb.MVInternalKeyComparator";
+}
 
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   // Order by:
@@ -99,6 +102,31 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
     assert(this->Compare(*key, tmp) < 0);
     key->swap(tmp);
   }
+}
+
+// Implementations of multi-version (MV) internal key comparator
+int MVInternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+  int r = user_comparator_->Compare(MVExtractUserKey(akey),
+                                    MVExtractUserKey(bkey));
+  if (r == 0) {
+    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 16);
+    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 16);
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+void MVInternalKeyComparator::FindShortestSeparator(std::string* start,
+                                                  const Slice& limit) const {
+  // MVLevelDB: We do nothing here.
+}
+
+void MVInternalKeyComparator::FindShortSuccessor(std::string* key) const {
+  // MVLevelDB: We do nothing here.
 }
 
 const char* InternalFilterPolicy::Name() const { return user_policy_->Name(); }

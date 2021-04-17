@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <limits>
 
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
@@ -64,12 +65,13 @@ static const ValueType kValueTypeForSeek = kTypeValue;
 
 typedef uint64_t SequenceNumber;
 
-// MVLevelDB: valid time type
-typedef uint64_t ValidTime;
-
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
+
+// MVLevelDB: valid time type
+typedef uint64_t ValidTime;
+static const ValidTime kMaxValidTime = LLONG_MAX;
 
 struct ParsedInternalKey {
   Slice user_key;
@@ -144,6 +146,23 @@ class InternalKeyComparator : public Comparator {
   const Comparator* user_comparator() const { return user_comparator_; }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
+};
+// The internal key comparator used in MVLevelDB
+class MVInternalKeyComparator : public Comparator {
+ private:
+  const Comparator* user_comparator_;
+
+ public:
+  explicit MVInternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
+  const char* Name() const override;
+  int Compare(const Slice& a, const Slice& b) const override;
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override;
+  void FindShortSuccessor(std::string* key) const override;
+
+  const Comparator* user_comparator() const { return user_comparator_; }
+
+  int Compare(const MVInternalKey& a, const MVInternalKey& b) const;
 };
 
 // Filter policy wrapper that converts from internal keys to user keys
@@ -226,6 +245,11 @@ class MVInternalKey {
 
 inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
+  return Compare(a.Encode(), b.Encode());
+}
+
+inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
+                                          const MVInternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
 

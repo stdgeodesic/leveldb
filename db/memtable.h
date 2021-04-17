@@ -55,12 +55,19 @@ class MemTable {
   // Typically value will be empty if type==kTypeDeletion.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value);
+  // MVLevelDB
+  void AddMV(SequenceNumber seq, ValueType type, const Slice& key,
+             ValidTime vt, const Slice& value);
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
+
+  // MVLevelDB
+  bool GetMV(const MVLookupKey& key, ValidTime vt, std::string* value,
+             Status* s);
 
  private:
   friend class MemTableIterator;
