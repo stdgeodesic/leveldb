@@ -71,7 +71,7 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 // MVLevelDB: valid time type
 typedef uint64_t ValidTime;
-static const ValidTime kMaxValidTime = LLONG_MAX;
+static const ValidTime kMaxValidTime = UINT64_MAX;
 
 struct ParsedInternalKey {
   Slice user_key;
