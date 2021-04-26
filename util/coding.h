@@ -117,6 +117,27 @@ inline const char* GetVarint32Ptr(const char* p, const char* limit,
   return GetVarint32PtrFallback(p, limit, value);
 }
 
+// Used for MVLevelDB
+inline bool GetFixed64(Slice* input, uint64_t* value) {
+  if (input->size() < sizeof(uint64_t)) {
+    return false;
+  }
+  *value = DecodeFixed64(input->data());
+  input->remove_prefix(sizeof(uint64_t));
+  return true;
+}
+
+inline bool GetFixed32(Slice* input, uint32_t* value) {
+  if (input->size() < sizeof(uint32_t)) {
+    return false;
+  }
+  *value = DecodeFixed32(input->data());
+  input->remove_prefix(sizeof(uint32_t));
+  return true;
+}
+
+
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_UTIL_CODING_H_

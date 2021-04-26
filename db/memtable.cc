@@ -135,16 +135,43 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
 }
 
 // MVLevelDB
-// MemTableIteratorMV: multi-version MemTable Iterator
+// MemTableMVIterator: multi-version MemTable Iterator
 
-//class MemTableIterator
+//class MemTableMVIterator : public Iterator {
+// public:
+//  explicit MemTableMVIterator(MemTable::Table* table) : iter_(table) {}
+//
+//  MemTableMVIterator(const MemTableMVIterator&) = delete;
+//  MemTableMVIterator& operator=(const MemTableMVIterator&) = delete;
+//
+//  ~MemTableMVIterator() override = default;
+//
+//  bool Valid() const override { return iter_.Valid(); }
+//  void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
+//  void SeekToFirst() override { iter_.SeekToFirst(); }
+//  void SeekToLast() override { iter_.SeekToLast(); }
+//  void Next() override { iter_.Next(); }
+//  void Prev() override { iter_.Prev(); }
+//  Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
+//  Slice value() const override {
+//    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+//    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+//  }
+//
+//  Status status() const override { return Status::OK(); }
+//
+// private:
+//  MemTable::Table::Iterator iter_;
+//  std::string tmp_;
+//};
+
 
 // Add multi-version entries to MemTable
 void MemTable::AddMV(SequenceNumber s, ValueType type, const Slice& key,
                      ValidTime vt, const Slice& value) {
   size_t key_size = key.size();
   size_t val_size = value.size();
-  size_t internal_key_size = key_size + 8;
+  size_t internal_key_size = key_size + 16;
   const size_t encoded_len = VarintLength(internal_key_size) +
                              internal_key_size + VarintLength(val_size) +
                              val_size;
@@ -161,5 +188,12 @@ void MemTable::AddMV(SequenceNumber s, ValueType type, const Slice& key,
   assert(p + val_size == buf + encoded_len);
   table_.Insert(buf);
 }
+
+// TODO
+//bool MemTable::GetMV(const MVLookupKey& key, ValidTime vt, std::string* value, Status* s) {
+//  Slice memkey = key.memtable_key();
+//  Table::Iterator iter(&table_);
+//
+//}
 
 }  // namespace leveldb

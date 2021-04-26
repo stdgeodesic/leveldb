@@ -21,7 +21,7 @@ static std::string MVIKey(const std::string& user_key, uint64_t seq,
 
 static std::string Shorten(const std::string& s, const std::string& l) {
   std::string result = s;
-  MVInternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
+  InternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
   return result;
 }
 

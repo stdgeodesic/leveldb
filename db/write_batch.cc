@@ -129,6 +129,21 @@ class MemTableInserter : public WriteBatch::Handler {
     sequence_++;
   }
 };
+
+ class MemTableMVInsertor : public WriteBatchMV::Handler {
+  public:
+   SequenceNumber sequence_;
+   MemTable* mem_;
+
+   void Put(const Slice& key, ValidTime vt, const Slice& value) override {
+     mem_->AddMV(sequence_, kTypeValue, key, vt, value);
+     sequence_++;
+   }
+   void Delete(const Slice& key, ValidTime vt) override {
+     mem_->AddMV(sequence_, kTypeDeletion, key, vt, Slice());
+     sequence_++;
+   }
+ };
 }  // namespace
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
@@ -151,8 +166,10 @@ void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
 
 // MVLevelDB implementations of internal functions to setup WriteBatch
 Status WriteBatchMVInternal::InsertInto(const WriteBatchMV* b, MemTable* memtable) {
-  // TODO
-  return Status::OK();
+  MemTableMVInsertor inserter;
+  inserter.sequence_ = WriteBatchMVInternal::Sequence(b);
+  inserter.mem_ = memtable;
+  return b->Iterate(&inserter);
 }
 
 void WriteBatchMVInternal::SetContents(WriteBatchMV* b, const Slice& contents) {
@@ -162,12 +179,22 @@ void WriteBatchMVInternal::SetContents(WriteBatchMV* b, const Slice& contents) {
 
 void WriteBatchMVInternal::Append(WriteBatchMV* dst, const WriteBatchMV* src) {
   SetCount(dst, Count(dst) + Count(src));
-  assert(src->rep_.size() >> kHeader);
+  assert(src->rep_.size() >= kHeader);
   dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
 }
 
 
 // MVLevelDB
+// WriteBatchMV::rep_ :=
+//    sequence: fixed64
+//    count: fixed32
+//    data: record[count]
+// record :=
+//    kTypeValue varstring ValidTime varstring         |
+//    kTypeDeletion varstring ValidTime
+// varstring :=
+//    len: varint32
+//    data: uint8[len]
 WriteBatchMV::WriteBatchMV() { Clear(); }
 WriteBatchMV::~WriteBatchMV() = default;
 WriteBatchMV::Handler::~Handler() = default;
@@ -180,8 +207,46 @@ void WriteBatchMV::Clear() {
 size_t WriteBatchMV::ApproximateSize() const { return rep_.size(); }
 
 Status WriteBatchMV::Iterate(Handler* handler) const {
-  // TODO
-  return Status::OK();
+  Slice input(rep_);
+  if (input.size() < kHeader) {
+    return Status::Corruption("malformed WriteBatchMV (too small)");
+  }
+
+  input.remove_prefix(kHeader);
+  Slice key, value;
+  ValidTime vt;
+  int found = 0;
+  while (!input.empty()) {
+    found++;
+    char tag = input[0];
+    input.remove_prefix(1);
+    switch (tag) {
+      case kTypeValue:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetFixed64(&input, &vt) &&
+            GetLengthPrefixedSlice(&input, &value)) {
+          handler->Put(key, vt, value);
+        } else {
+          return Status::Corruption("bad WriteBatchMV Put");
+        }
+        break;
+      case kTypeDeletion:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetFixed64(&input, &vt)) {
+          handler->Delete(key, vt);
+        } else {
+          return Status::Corruption("bad WriteBatchMV Delete");
+        }
+        break;
+      default:
+        return Status::Corruption("unknown WriteBatchMV tag");
+    }
+  }
+  if (found != WriteBatchMVInternal::Count(this)) {
+    return Status::Corruption("WriteBatchMV has wrong count");
+  } else {
+    return Status::OK();
+  }
 }
 
 int WriteBatchMVInternal::Count(const WriteBatchMV* b) {
@@ -220,22 +285,5 @@ void WriteBatchMV::Delete(const Slice& key, const ValidTime vt) {
 void WriteBatchMV::Append(const WriteBatchMV& source) {
   WriteBatchMVInternal::Append(this, &source);
 }
-
-namespace {
-class MemTableInserterMV : public WriteBatchMV::Handler {
- public:
-  SequenceNumber sequence_;
-  MemTable* mem_;
-
-  void Put(const Slice &key, ValidTime vt, const Slice &value) override {
-    // TODO
-  }
-
-  void Delete(const Slice &key, ValidTime vt) override {
-    // TODO
-  }
-};
-
-}  // namespace
 
 }  // namespace leveldb

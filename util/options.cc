@@ -10,5 +10,6 @@
 namespace leveldb {
 
 Options::Options() : comparator(BytewiseComparator()), env(Env::Default()) {}
+Options::Options(bool mv) : comparator(BytewiseComparator()), env(Env::Default()), multi_version {mv} {}
 
 }  // namespace leveldb

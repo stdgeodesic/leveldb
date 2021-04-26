@@ -134,9 +134,12 @@ inline Slice MVExtractUserKey(const Slice& mv_internal_key) {
 class InternalKeyComparator : public Comparator {
  private:
   const Comparator* user_comparator_;
+  // MVLevelDB: set multi_version to TRUE to omit timestamp field when extract user key
+  const bool multi_version = false;
 
  public:
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
+  explicit InternalKeyComparator(const Comparator* c, bool mv) : user_comparator_(c), multi_version(mv) {}
   const char* Name() const override;
   int Compare(const Slice& a, const Slice& b) const override;
   void FindShortestSeparator(std::string* start,
@@ -147,23 +150,23 @@ class InternalKeyComparator : public Comparator {
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
 };
-// The internal key comparator used in MVLevelDB
-class MVInternalKeyComparator : public Comparator {
- private:
-  const Comparator* user_comparator_;
-
- public:
-  explicit MVInternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
-  const char* Name() const override;
-  int Compare(const Slice& a, const Slice& b) const override;
-  void FindShortestSeparator(std::string* start,
-                             const Slice& limit) const override;
-  void FindShortSuccessor(std::string* key) const override;
-
-  const Comparator* user_comparator() const { return user_comparator_; }
-
-  int Compare(const MVInternalKey& a, const MVInternalKey& b) const;
-};
+//// The internal key comparator used in MVLevelDB
+//class MVInternalKeyComparator : public InternalKeyComparator {
+// private:
+//  const Comparator* user_comparator_;
+//
+// public:
+//  explicit MVInternalKeyComparator(const Comparator* c) : InternalKeyComparator(c), user_comparator_(c) {}
+//  const char* Name() const override;
+//  int Compare(const Slice& a, const Slice& b) const override;
+//  void FindShortestSeparator(std::string* start,
+//                             const Slice& limit) const override;
+//  void FindShortSuccessor(std::string* key) const override;
+//
+//  const Comparator* user_comparator() const { return user_comparator_; }
+//
+//  int Compare(const MVInternalKey& a, const MVInternalKey& b) const;
+//};
 
 // Filter policy wrapper that converts from internal keys to user keys
 class InternalFilterPolicy : public FilterPolicy {
@@ -248,10 +251,10 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
   return Compare(a.Encode(), b.Encode());
 }
 
-inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
-                                          const MVInternalKey& b) const {
-  return Compare(a.Encode(), b.Encode());
-}
+//inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
+//                                          const MVInternalKey& b) const {
+//  return Compare(a.Encode(), b.Encode());
+//}
 
 inline bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result) {

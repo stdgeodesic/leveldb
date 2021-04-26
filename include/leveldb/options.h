@@ -33,6 +33,7 @@ enum CompressionType {
 struct LEVELDB_EXPORT Options {
   // Create an Options object with default values for all fields.
   Options();
+  explicit Options(bool multi_version);
 
   // -------------------
   // Parameters that affect behavior
@@ -44,6 +45,15 @@ struct LEVELDB_EXPORT Options {
   // here has the same name and orders keys *exactly* the same as the
   // comparator provided to previous open calls on the same DB.
   const Comparator* comparator;
+
+  // MVLevelDB
+  // Multi-Version Switch
+  // If true, the database will maintain valid timestamp information for
+  // each data entry.
+  //
+  // REQUIRES: The client must ensure that this option is the same as
+  // that in previous open calls on the same DB.
+  bool multi_version = false;
 
   // If true, the database will be created if it is missing.
   bool create_if_missing = false;
