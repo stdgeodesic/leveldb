@@ -56,9 +56,7 @@ class MemTable {
   // Typically value will be empty if type==kTypeDeletion.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value);
-  // MVLevelDB
-  void AddMV(SequenceNumber seq, ValueType type, const Slice& key,
-             ValidTime vt, const Slice& value);
+
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
@@ -67,8 +65,15 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
   // MVLevelDB
+  void AddMV(SequenceNumber seq, ValueType type, const Slice& key,
+             ValidTime vt, const Slice& value);
   bool GetMV(const MVLookupKey& key, ValidTime vt, std::string* value,
              Status* s);
+
+  void SetStartValidTime(ValidTime t) { valid_time_lo_ = t; }
+  void SetEndValidTime(ValidTime t) { valid_time_hi_ = t; }
+  ValidTime GetStartBalidTime() { return valid_time_lo_; }
+  ValidTime GetEndValidTime() { return valid_time_hi_; }
 
  private:
   friend class MemTableIterator;
@@ -88,6 +93,10 @@ class MemTable {
   int refs_;
   Arena arena_;
   Table table_;
+
+  // MVLevelDB timestamp
+  ValidTime valid_time_lo_;
+  ValidTime valid_time_hi_;
 };
 
 }  // namespace leveldb

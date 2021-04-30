@@ -21,7 +21,7 @@ static std::string MVIKey(const std::string& user_key, uint64_t seq,
 
 static std::string Shorten(const std::string& s, const std::string& l) {
   std::string result = s;
-  InternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
+  InternalKeyComparator(BytewiseComparator(), true).FindShortestSeparator(&result, l);
   return result;
 }
 
@@ -92,10 +92,10 @@ TEST(MVFormatTest, InternalKeyShortSeparator) {
             Shorten(MVIKey("foo", 100, kTypeValue, current_time), MVIKey("bar", 99, kTypeValue, current_time)));
 
   // When user keys are different, but correctly ordered
-  // TODO: this will fail because of MVInternalKeyComparator::FindShortestSeparator
-//  ASSERT_EQ(
-//      MVIKey("g", kMaxSequenceNumber, kValueTypeForSeek, current_time),
-//      Shorten(MVIKey("foo", 100, kTypeValue, current_time), MVIKey("hello", 200, kTypeValue, current_time)));
+  // TODO: this will fail because of InternalKeyComparator::FindShortestSeparator
+  ASSERT_EQ(
+      MVIKey("g", kMaxSequenceNumber, kValueTypeForSeek, kMinValidTime),
+      Shorten(MVIKey("foo", 100, kTypeValue, current_time), MVIKey("hello", 200, kTypeValue, current_time)));
 
   // When start user key is prefix of limit user key
   ASSERT_EQ(

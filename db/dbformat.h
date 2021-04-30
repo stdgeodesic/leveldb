@@ -70,8 +70,9 @@ typedef uint64_t SequenceNumber;
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 // MVLevelDB: valid time type
-typedef uint64_t ValidTime;
+// typedef uint64_t ValidTime; // Define in db.h
 static const ValidTime kMaxValidTime = UINT64_MAX;
+static const ValidTime kMinValidTime = 0x0;
 
 struct ParsedInternalKey {
   Slice user_key;

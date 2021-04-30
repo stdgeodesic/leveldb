@@ -80,7 +80,7 @@ class LEVELDB_EXPORT WriteBatch {
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
 };
 
-class LEVELDB_EXPORT WriteBatchMV {
+class LEVELDB_EXPORT WriteBatchMV : public WriteBatch {
  public:
   class LEVELDB_EXPORT Handler {
    public:
@@ -96,8 +96,8 @@ class LEVELDB_EXPORT WriteBatchMV {
 
   ~WriteBatchMV();
 
-  void Put(const Slice& key, const ValidTime vt, const Slice& value);
-  void Delete(const Slice& key, const ValidTime vt);
+  void Put(const Slice& key, ValidTime vt, const Slice& value);
+  void Delete(const Slice& key, ValidTime vt);
   void Clear();
 
   size_t ApproximateSize() const;

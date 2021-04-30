@@ -14,7 +14,6 @@
 
 namespace leveldb {
 
-// TODO
 static std::string PrintContents(WriteBatchMV* b) {
   InternalKeyComparator cmp(BytewiseComparator(), true);
   MemTable* mem = new MemTable(cmp);
@@ -140,6 +139,28 @@ TEST(WriteBatchMVTest, Append) {
       "Put(b, " + current_time_string + ", vb)@201"
       "Delete(foo, " + current_time_string + ")@203",
       PrintContents(&b1));
+}
+
+TEST(WriteBatchMVTest, ApproximateSize) {
+  auto current = std::chrono::system_clock::now();
+  std::time_t current_time = std::chrono::system_clock::to_time_t(current);
+  std::string current_time_string;
+  PutFixed64(&current_time_string, current_time);
+
+  WriteBatchMV batch;
+  size_t empty_size = batch.ApproximateSize();
+
+  batch.Put(Slice("foo"), current_time, Slice("bar"));
+  size_t one_key_size = batch.ApproximateSize();
+  ASSERT_LT(empty_size, one_key_size);
+
+  batch.Put(Slice("baz"), current_time, Slice("boo"));
+  size_t two_keys_size = batch.ApproximateSize();
+  ASSERT_LT(one_key_size, two_keys_size);
+
+  batch.Delete(Slice("box"), current_time);
+  size_t post_delete_size = batch.ApproximateSize();
+  ASSERT_LT(two_keys_size, post_delete_size);
 }
 
 }  // namespace leveldb

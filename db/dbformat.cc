@@ -82,8 +82,15 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
 void InternalKeyComparator::FindShortestSeparator(std::string* start,
                                                   const Slice& limit) const {
   // Attempt to shorten the user portion of the key
-  Slice user_start = ExtractUserKey(*start);
-  Slice user_limit = ExtractUserKey(limit);
+  Slice user_start, user_limit;
+  if(multi_version) {
+    user_start = MVExtractUserKey(*start);
+    user_limit = MVExtractUserKey(limit);
+  } else {
+    user_start = ExtractUserKey(*start);
+    user_limit = ExtractUserKey(limit);
+  }
+
   std::string tmp(user_start.data(), user_start.size());
   user_comparator_->FindShortestSeparator(&tmp, user_limit);
   if (tmp.size() < user_start.size() &&
@@ -92,6 +99,8 @@ void InternalKeyComparator::FindShortestSeparator(std::string* start,
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp,
                PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+    // Set timestamp field to 0.
+    if (multi_version) { PutFixed64(&tmp, kMinValidTime); }
     assert(this->Compare(*start, tmp) < 0);
     assert(this->Compare(tmp, limit) < 0);
     start->swap(tmp);

@@ -18,10 +18,14 @@ namespace leveldb {
 static const int kMajorVersion = 1;
 static const int kMinorVersion = 23;
 
+// MVLevelDB TimeStamp Type
+typedef uint64_t ValidTime;
+
 struct Options;
 struct ReadOptions;
 struct WriteOptions;
 class WriteBatch;
+class WriteBatchMV;
 
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
@@ -76,6 +80,7 @@ class LEVELDB_EXPORT DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+//  virtual Status Write(const WriteOptions& options, WriteBatchMV* updates);
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
