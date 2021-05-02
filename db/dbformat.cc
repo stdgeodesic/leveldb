@@ -83,7 +83,7 @@ void InternalKeyComparator::FindShortestSeparator(std::string* start,
                                                   const Slice& limit) const {
   // Attempt to shorten the user portion of the key
   Slice user_start, user_limit;
-  if(multi_version) {
+  if (multi_version) {
     user_start = MVExtractUserKey(*start);
     user_limit = MVExtractUserKey(limit);
   } else {

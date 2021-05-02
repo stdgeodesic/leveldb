@@ -388,6 +388,7 @@ if(LEVELDB_BUILD_TESTS)
 
     # MVLevelDB tests
     leveldb_test("tests/demo_test.cc")
+    leveldb_test("db/db_mv_test.cc")
     leveldb_test("db/dbformat_mv_test.cc")
     leveldb_test("db/write_batch_mv_test.cc")
   endif(NOT BUILD_SHARED_LIBS)

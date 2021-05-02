@@ -64,16 +64,16 @@ class MemTable {
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
-  // MVLevelDB
+  // MVLevelDB extra methods
   void AddMV(SequenceNumber seq, ValueType type, const Slice& key,
              ValidTime vt, const Slice& value);
-  bool GetMV(const MVLookupKey& key, ValidTime vt, std::string* value,
+  bool GetMV(const MVLookupKey& key,  std::string* value, ValidTimePeriod* period,
              Status* s);
 
   void SetStartValidTime(ValidTime t) { valid_time_lo_ = t; }
   void SetEndValidTime(ValidTime t) { valid_time_hi_ = t; }
-  ValidTime GetStartBalidTime() { return valid_time_lo_; }
-  ValidTime GetEndValidTime() { return valid_time_hi_; }
+  ValidTime GetStartBalidTime() const { return valid_time_lo_; }
+  ValidTime GetEndValidTime() const { return valid_time_hi_; }
 
  private:
   friend class MemTableIterator;

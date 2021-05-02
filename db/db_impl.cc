@@ -51,6 +51,18 @@ struct DBImpl::Writer {
   port::CondVar cv;
 };
 
+// MVLevelDB: Writer
+struct DBImpl::WriterMV {
+  explicit WriterMV(port::Mutex* mu)
+      : batch(nullptr), sync(false), done(false), cv(mu) {}
+
+  Status status;
+  WriteBatchMV* batch;
+  bool sync;
+  bool done;
+  port::CondVar cv;
+};
+
 struct DBImpl::CompactionState {
   // Files produced by compaction
   struct Output {
@@ -127,7 +139,7 @@ static int TableCacheSize(const Options& sanitized_options) {
 
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     : env_(raw_options.env),
-      internal_comparator_(raw_options.comparator),
+      internal_comparator_(raw_options.comparator, raw_options.multi_version),
       internal_filter_policy_(raw_options.filter_policy),
       options_(SanitizeOptions(dbname, &internal_comparator_,
                                &internal_filter_policy_, raw_options)),
@@ -146,6 +158,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       log_(nullptr),
       seed_(0),
       tmp_batch_(new WriteBatch),
+      tmp_batch_mv_(new WriteBatchMV),  // MVLevelDB
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
@@ -1161,6 +1174,58 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   return s;
 }
 
+// TODO
+// MVLevelDB version of Get
+Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
+                     ValidTimePeriod* period, std::string* value) {
+  Status s;
+  MutexLock l(&mutex_);
+  SequenceNumber snapshot;
+  if (options.snapshot != nullptr) {
+    snapshot =
+        static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
+  } else {
+    snapshot = versions_->LastSequence();
+  }
+
+  MemTable* mem = mem_;
+  MemTable* imm = imm_;
+  Version* current = versions_->current();
+  mem->Ref();
+  if (imm != nullptr) imm->Ref();
+  current->Ref();
+
+  bool have_stat_update = false;
+  Version::GetStats stats;
+
+  // Unlock while reading from files and memtables
+  {
+    mutex_.Unlock();
+    // First look in the memtable, then in the immutable memtable (if any).
+    MVLookupKey lkey(key, snapshot, vt);
+    if (mem->GetMV(lkey, value, period, &s)) {
+      // Done
+    } else if (imm != nullptr && imm->GetMV(lkey, value, period, &s)) {
+      // Done
+    } else {
+      // TODO
+      s = Status::NotFound("NOT_FOUND_IN_CACHE");
+//      s = current->Get(options, lkey, value, &stats);
+//      have_stat_update = true;
+    }
+    mutex_.Lock();
+  }
+
+  if (have_stat_update && current->UpdateStats(stats)) {
+    MaybeScheduleCompaction();
+  }
+  mem->Unref();
+  if (imm != nullptr) imm->Unref();
+  current->Unref();
+
+  return s;
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
@@ -1197,6 +1262,19 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return DB::Delete(options, key);
+}
+
+// MVLevelDB version of Put/Delete
+Status DBImpl::PutMV(const WriteOptions& opt, const Slice& key, ValidTime vt, const Slice& val) {
+  WriteBatchMV batch_mv;
+  batch_mv.Put(key, vt, val);
+  return WriteMV(opt, &batch_mv);
+}
+
+Status DBImpl::DeleteMV(const WriteOptions& opt, const Slice& key, const ValidTime vt) {
+  WriteBatchMV batch_mv;
+  batch_mv.Delete(key, vt);
+  return WriteMV(opt, &batch_mv);
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
@@ -1272,6 +1350,80 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   return status;
 }
 
+// MVLevelDB version of Write
+Status DBImpl::WriteMV(const WriteOptions& options, WriteBatchMV* updates) {
+  WriterMV w(&mutex_);
+  w.batch = updates;
+  w.sync = options.sync;
+  w.done = false;
+
+  MutexLock l(&mutex_);
+  writers_mv_.push_back(&w);
+  while (!w.done && &w != writers_mv_.front()) {
+    w.cv.Wait();
+  }
+  if (w.done) {
+    return w.status;
+  }
+
+  // May temporarily unlock and wait.
+  Status status = MakeRoomForWriteMV(updates == nullptr);
+  uint64_t last_sequence = versions_->LastSequence();
+  WriterMV* last_writer = &w;
+  if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
+    WriteBatchMV* write_batch_mv = BuildBatchGroupMV(&last_writer);
+    WriteBatchMVInternal::SetSequence(write_batch_mv, last_sequence + 1);
+    last_sequence += WriteBatchMVInternal::Count(write_batch_mv);
+
+    // Add to log and apply to memtable.  We can release the lock
+    // during this phase since &w is currently responsible for logging
+    // and protects against concurrent loggers and concurrent writes
+    // into mem_.
+    {
+      mutex_.Unlock();
+      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch_mv));
+      bool sync_error = false;
+      if (status.ok() && options.sync) {
+        status = logfile_->Sync();
+        if (!status.ok()) {
+          sync_error = true;
+        }
+      }
+      if (status.ok()) {
+        status = WriteBatchMVInternal::InsertInto(write_batch_mv, mem_);
+      }
+      mutex_.Lock();
+      if (sync_error) {
+        // The state of the log file is indeterminate: the log record we
+        // just added may or may not show up when the DB is re-opened.
+        // So we force the DB into a mode where all future writes fail.
+        RecordBackgroundError(status);
+      }
+    }
+    if (write_batch_mv == tmp_batch_mv_) tmp_batch_mv_->Clear();
+
+    versions_->SetLastSequence(last_sequence);
+  }
+
+  while (true) {
+    WriterMV* ready = writers_mv_.front();
+    writers_mv_.pop_front();
+    if (ready != &w) {
+      ready->status = status;
+      ready->done = true;
+      ready->cv.Signal();
+    }
+    if (ready == last_writer) break;
+  }
+
+  // Notify new head of write queue
+  if (!writers_mv_.empty()) {
+    writers_mv_.front()->cv.Signal();
+  }
+
+  return status;
+}
+
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
@@ -1316,6 +1468,52 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
         WriteBatchInternal::Append(result, first->batch);
       }
       WriteBatchInternal::Append(result, w->batch);
+    }
+    *last_writer = w;
+  }
+  return result;
+}
+
+// MVLevelDB version of BuildBatchGroup
+WriteBatchMV* DBImpl::BuildBatchGroupMV(WriterMV** last_writer) {
+  mutex_.AssertHeld();
+  assert(!writers_mv_.empty());
+  WriterMV* first = writers_mv_.front();
+  WriteBatchMV* result = first->batch;
+  assert(result != nullptr);
+
+  size_t size = WriteBatchMVInternal::ByteSize(first->batch);
+
+  size_t max_size = 1 << 20;
+  if (size <= (128 << 10)) {
+    max_size = size + (128 << 10);
+  }
+
+  *last_writer = first;
+  std::deque<WriterMV*>::iterator iter = writers_mv_.begin();
+  ++iter; // Advance past "first"
+  for (; iter != writers_mv_.end(); ++iter) {
+    WriterMV* w = *iter;
+    if (w->sync && !first->sync) {
+      // Do not include a sync write into a batch handled by a non-sync write.
+      break;
+    }
+
+    if (w->batch != nullptr) {
+      size += WriteBatchMVInternal::ByteSize(w->batch);
+      if (size > max_size) {
+        // Do not make batch too big
+        break;
+      }
+
+      // Append to *result
+      if (result == first->batch) {
+        // Switch to temporary batch instead of disturbing caller's batch
+        result = tmp_batch_mv_;
+        assert(WriteBatchMVInternal::Count(result) == 0);
+        WriteBatchMVInternal::Append(result, first->batch);
+      }
+      WriteBatchMVInternal::Append(result, w->batch);
     }
     *last_writer = w;
   }
@@ -1380,6 +1578,69 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
+      MaybeScheduleCompaction();
+    }
+  }
+  return s;
+}
+
+Status DBImpl::MakeRoomForWriteMV(bool force) {
+  mutex_.AssertHeld();
+  assert(!writers_mv_.empty());
+  bool allow_delay = !force;
+  Status s;
+  while (true) {
+    if (!bg_error_.ok()) {
+      // Yield previous error
+      s = bg_error_;
+      break;
+    } else if (allow_delay && versions_->NumLevelFiles(0) >=
+                                  config::kL0_SlowdownWritesTrigger) {
+      // We are getting close to hitting a hard limit on the number of
+      // L0 files.  Rather than delaying a single write by several
+      // seconds when we hit the hard limit, start delaying each
+      // individual write by 1ms to reduce latency variance.  Also,
+      // this delay hands over some CPU to the compaction thread in
+      // case it is sharing the same core as the writer.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(1000);
+      allow_delay = false;
+      mutex_.Lock();
+    } else if (!force &&
+               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+      // There is room in current memtable
+      break;
+    } else if (imm_ != nullptr) {
+      // We have filled up the current memtable, but the previous
+      // one is still being compacted, so we wait.
+      Log(options_.info_log, "Current memtable full; waiting...\n");
+      background_work_finished_signal_.Wait();
+    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
+      // There are too many level-0 files.
+      Log(options_.info_log, "Too many L0 files; waiting...\n");
+      background_work_finished_signal_.Wait();
+    } else {
+      // Attempt to switch to a new memtable and trigger compaction of old
+      assert(versions_->PrevLogNumber() == 0);
+      uint64_t new_log_number = versions_->NewFileNumber();
+      WritableFile* lfile = nullptr;
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+      if (!s.ok()) {
+        // Avoid chewing through file number space in a tight loop.
+        versions_->ReuseFileNumber(new_log_number);
+        break;
+      }
+      delete log_;
+      delete logfile_;
+      logfile_ = lfile;
+      logfile_number_ = new_log_number;
+      log_ = new log::Writer(lfile);
+      // TODO: preserve latest data entries in MemTable
+      imm_ = mem_;
+      has_imm_.store(true, std::memory_order_release);
+      mem_ = new MemTable(internal_comparator_);
+      mem_->Ref();
+      force = false;
       MaybeScheduleCompaction();
     }
   }

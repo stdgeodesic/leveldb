@@ -51,6 +51,16 @@ class DBImpl : public DB {
 
   // Extra methods (for testing) that are not in the public DB interface
 
+  // MVLevelDB Extra methods
+  Status PutMV(const WriteOptions&, const Slice& key, ValidTime vt,
+               const Slice& value) override;
+  Status DeleteMV(const WriteOptions&, const Slice& key,
+                  const ValidTime vt) override ;
+  Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) override;
+  Status GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
+               ValidTimePeriod* period, std::string* value) override;
+
+
   // Compact any files in the named level that overlap [*begin,*end]
   void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
 
@@ -75,6 +85,7 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
+  struct WriterMV;
 
   // Information for a manual compaction
   struct ManualCompaction {
@@ -133,6 +144,12 @@ class DBImpl : public DB {
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   WriteBatch* BuildBatchGroup(Writer** last_writer)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
+  // MVLevelDB Extra private methods
+  Status MakeRoomForWriteMV(bool force)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  WriteBatchMV* BuildBatchGroupMV(WriterMV** last_writer)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   void RecordBackgroundError(const Status& s);
@@ -203,6 +220,10 @@ class DBImpl : public DB {
   Status bg_error_ GUARDED_BY(mutex_);
 
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
+
+  // MVLevelDB extra private members
+  std::deque<WriterMV*> writers_mv_ GUARDED_BY(mutex_);
+  WriteBatchMV* tmp_batch_mv_ GUARDED_BY(mutex_);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

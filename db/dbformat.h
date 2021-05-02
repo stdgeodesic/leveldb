@@ -341,6 +341,9 @@ class MVLookupKey {
   // 16 = sizeof (seq + tag + ValidTime)
   Slice user_key() const { return Slice(kstart_, end_ - kstart_ - 16); }
 
+  // Return the valid time field
+  ValidTime valid_time() const { return DecodeFixed64(end_ - 8); }
+
  private:
   const char* start_;
   const char* kstart_;
@@ -351,6 +354,9 @@ class MVLookupKey {
 inline MVLookupKey::~MVLookupKey() {
   if (start_ != space_) delete[] start_;
 }
+
+// Convenience methods for extracting valid time from internal keys
+
 
 }  // namespace leveldb
 

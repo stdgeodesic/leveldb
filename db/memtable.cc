@@ -134,38 +134,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   return false;
 }
 
-// MVLevelDB
-// MemTableMVIterator: multi-version MemTable Iterator
-
-//class MemTableMVIterator : public Iterator {
-// public:
-//  explicit MemTableMVIterator(MemTable::Table* table) : iter_(table) {}
-//
-//  MemTableMVIterator(const MemTableMVIterator&) = delete;
-//  MemTableMVIterator& operator=(const MemTableMVIterator&) = delete;
-//
-//  ~MemTableMVIterator() override = default;
-//
-//  bool Valid() const override { return iter_.Valid(); }
-//  void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
-//  void SeekToFirst() override { iter_.SeekToFirst(); }
-//  void SeekToLast() override { iter_.SeekToLast(); }
-//  void Next() override { iter_.Next(); }
-//  void Prev() override { iter_.Prev(); }
-//  Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
-//  Slice value() const override {
-//    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
-//    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
-//  }
-//
-//  Status status() const override { return Status::OK(); }
-//
-// private:
-//  MemTable::Table::Iterator iter_;
-//  std::string tmp_;
-//};
-
-
 // Add multi-version entries to MemTable
 void MemTable::AddMV(SequenceNumber s, ValueType type, const Slice& key,
                      ValidTime vt, const Slice& value) {
@@ -190,10 +158,46 @@ void MemTable::AddMV(SequenceNumber s, ValueType type, const Slice& key,
 }
 
 // TODO
-//bool MemTable::GetMV(const MVLookupKey& key, ValidTime vt, std::string* value, Status* s) {
-//  Slice memkey = key.memtable_key();
-//  Table::Iterator iter(&table_);
-//
-//}
+bool MemTable::GetMV(const MVLookupKey& key, std::string* value, ValidTimePeriod* period, Status* s) {
+  Slice memkey = key.memtable_key();
+  Table::Iterator iter(&table_);
+  // Advances to the latest data version of the required key
+  // Physically the first version
+  iter.Seek(memkey.data());
+  if (iter.Valid()) {
+    const char* entry = iter.key();
+    uint32_t key_length;
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (comparator_.comparator.user_comparator()->Compare(
+        Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
+      // Correct user key
+      ValidTime hi_ = kMaxValidTime;
+      ValidTime lo_ = DecodeFixed64(key_ptr + key_length - 8);
+      while (key.valid_time() < lo_) {  // retrieved key's valid time not overlap lookup key
+        hi_ = lo_;
+        iter.Next();
+        entry = iter.key();
+        key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+        lo_ = DecodeFixed64(key_ptr + key_length - 8);
+      }
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 16);
+      switch (static_cast<ValueType>(tag & 0xff)) {
+        case kTypeValue: {
+          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          value->assign(v.data(), v.size());
+          period->lo = lo_;
+          period->hi = hi_;
+          return true;
+        }
+        case kTypeDeletion:
+          *s = Status::NotFound(Slice());
+          period->lo = lo_;
+          period->hi = hi_;
+          return true;
+      }
+    }
+  }
+  return false;
+}
 
 }  // namespace leveldb

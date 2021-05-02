@@ -21,6 +21,12 @@ static const int kMinorVersion = 23;
 // MVLevelDB TimeStamp Type
 typedef uint64_t ValidTime;
 
+struct ValidTimePeriod {
+  ValidTime lo;
+  ValidTime hi;
+  ValidTimePeriod(ValidTime l, ValidTime h) : lo(l), hi(h) {}
+};
+
 struct Options;
 struct ReadOptions;
 struct WriteOptions;
@@ -91,6 +97,23 @@ class LEVELDB_EXPORT DB {
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+
+  // MVLevelDB methods
+  // Implementations must override these methods to provide multi-version data access.
+  virtual Status PutMV(const WriteOptions&, const Slice& key, ValidTime vt,
+             const Slice& value) {
+    return Status::NotSupported("Multi-Version is not supported in current DB.");
+  }
+  virtual Status DeleteMV(const WriteOptions&, const Slice& key, const ValidTime vt) {
+    return Status::NotSupported("Multi-Version is not supported in current DB.");
+  }
+  virtual Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) {
+    return Status::NotSupported("Multi-Version is not supported in current DB.");
+  }
+  virtual Status GetMV(const ReadOptions& options, const Slice& key,
+               ValidTime vt, ValidTimePeriod* period, std::string* value) {
+    return Status::NotSupported("Multi-Version is not supported in current DB.");
+  }
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
