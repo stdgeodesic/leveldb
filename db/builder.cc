@@ -29,14 +29,25 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
-    meta->smallest.DecodeFrom(iter->key());
+    // TODO: MVLevelDB version MVInternalKey
+    if (options.multi_version) {
+      meta->smallest.DecodeFromMV(iter->key());
+    } else {
+      meta->smallest.DecodeFrom(iter->key());
+    }
     Slice key;
     for (; iter->Valid(); iter->Next()) {
       key = iter->key();
       builder->Add(key, iter->value());
     }
     if (!key.empty()) {
-      meta->largest.DecodeFrom(key);
+      // TODO: MVLevelDB version MVInternalKey
+      if (options.multi_version) {
+        meta->largest.DecodeFromMV(key);
+      } else {
+        meta->largest.DecodeFrom(key);
+      }
+//      meta->largest.DecodeFrom(key);
     }
 
     // Finish and check for builder errors

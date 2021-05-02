@@ -18,15 +18,6 @@ namespace leveldb {
 static const int kMajorVersion = 1;
 static const int kMinorVersion = 23;
 
-// MVLevelDB TimeStamp Type
-typedef uint64_t ValidTime;
-
-struct ValidTimePeriod {
-  ValidTime lo;
-  ValidTime hi;
-  ValidTimePeriod(ValidTime l, ValidTime h) : lo(l), hi(h) {}
-};
-
 struct Options;
 struct ReadOptions;
 struct WriteOptions;

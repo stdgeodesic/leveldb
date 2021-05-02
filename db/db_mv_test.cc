@@ -646,6 +646,12 @@ TEST_F(DBTest, PutDeleteGetOldVersion) {
 }
 
 
+std::string MakeKey(unsigned int num) {
+  char buf[30];
+  std::snprintf(buf, sizeof(buf), "%016u", num);
+  return std::string(buf);
+}
+
 }  // namesapce leveldb
 
 int main(int argc, char** argv) {

@@ -199,6 +199,12 @@ class InternalKey {
     return !rep_.empty();
   }
 
+  // Decode from MVInternalKey string
+  bool DecodeFromMV(const Slice& s) {
+    rep_.assign(s.data(), s.size() - 8);
+    return !rep_.empty();
+  }
+
   Slice Encode() const {
     assert(!rep_.empty());
     return rep_;

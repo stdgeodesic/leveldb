@@ -109,6 +109,15 @@ inline int Slice::compare(const Slice& b) const {
   return r;
 }
 
+// MVLevelDB TimeStamp Type
+typedef uint64_t ValidTime;
+
+struct ValidTimePeriod {
+  ValidTime lo;
+  ValidTime hi;
+  ValidTimePeriod(ValidTime l, ValidTime h) : lo(l), hi(h) {}
+};
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_SLICE_H_
