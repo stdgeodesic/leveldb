@@ -72,7 +72,7 @@ class MemTable {
 
   void SetStartValidTime(ValidTime t) { valid_time_lo_ = t; }
   void SetEndValidTime(ValidTime t) { valid_time_hi_ = t; }
-  ValidTime GetStartBalidTime() const { return valid_time_lo_; }
+  ValidTime GetStartValidTime() const { return valid_time_lo_; }
   ValidTime GetEndValidTime() const { return valid_time_hi_; }
 
  private:

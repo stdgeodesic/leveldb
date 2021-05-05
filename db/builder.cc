@@ -47,7 +47,6 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       } else {
         meta->largest.DecodeFrom(key);
       }
-//      meta->largest.DecodeFrom(key);
     }
 
     // Finish and check for builder errors

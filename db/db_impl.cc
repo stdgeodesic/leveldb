@@ -1381,7 +1381,7 @@ Status DBImpl::WriteMV(const WriteOptions& options, WriteBatchMV* updates) {
     // into mem_.
     {
       mutex_.Unlock();
-      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch_mv));
+      status = log_->AddRecord(WriteBatchMVInternal::Contents(write_batch_mv));
       bool sync_error = false;
       if (status.ok() && options.sync) {
         status = logfile_->Sync();
@@ -1573,10 +1573,17 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
-      imm_ = mem_;
-      has_imm_.store(true, std::memory_order_release);
-      mem_ = new MemTable(internal_comparator_);
-      mem_->Ref();
+      // TODO MVLevelDB copy MemTable
+      if (options_.multi_version) {
+        auto current = std::chrono::system_clock::now();
+        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
+        CreateImmutableMemTable(current_time);
+      } else {
+        imm_ = mem_;
+        has_imm_.store(true, std::memory_order_release);
+        mem_ = new MemTable(internal_comparator_);
+        mem_->Ref();
+      }
       force = false;  // Do not force another compaction if have room
       MaybeScheduleCompaction();
     }
@@ -1644,6 +1651,52 @@ Status DBImpl::MakeRoomForWriteMV(bool force) {
       MaybeScheduleCompaction();
     }
   }
+  return s;
+}
+
+// REQUIRES: mutex_ is held
+Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
+  Status s;
+//  MutexLock l(&mutex_);
+  mutex_.AssertHeld();
+  assert(imm_ == nullptr);
+
+  imm_ = mem_;
+  has_imm_.store(true, std::memory_order_release);
+  imm_->SetEndValidTime(vt);
+  mem_ = new MemTable(internal_comparator_);
+  mem_->Ref();
+  mem_->SetStartValidTime(vt);
+
+  MemTable* imm = imm_;
+  imm->Ref();
+
+  WriteBatchMV* batch = new WriteBatchMV();
+
+  // TODO: iterating over all data versions is slow
+  Iterator* iter = imm->NewIterator();
+  iter->SeekToFirst();
+  MVInternalKey last_key;
+  last_key.DecodeFrom(iter->key());
+  batch->Put(last_key.user_key(), vt, iter->value());
+  iter->Next();
+  for (; iter->Valid(); iter->Next()) {
+    MVInternalKey key;
+    key.DecodeFrom(iter->key());
+    if (key.user_key() == last_key.user_key()) continue;
+    batch->Put(key.user_key(), vt, iter->value());
+    last_key = key;
+  }
+
+  // Copy active data entries from old MemTable to new MemTable
+  uint64_t last_sequence = versions_->LastSequence();
+  WriteBatchMVInternal::SetSequence(batch, last_sequence + 1);
+  last_sequence += WriteBatchMVInternal::Count(batch);
+
+  // Add to log and apply to memtable.
+  s = log_->AddRecord(WriteBatchMVInternal::Contents(batch));
+  s = WriteBatchMVInternal::InsertInto(batch, mem_);
+
   return s;
 }
 

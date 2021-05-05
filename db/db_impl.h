@@ -10,6 +10,10 @@
 #include <set>
 #include <string>
 
+// MVLevelDB
+#include <chrono>
+#include <ctime>
+
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
@@ -151,6 +155,7 @@ class DBImpl : public DB {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   WriteBatchMV* BuildBatchGroupMV(WriterMV** last_writer)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  Status CreateImmutableMemTable(ValidTime vt);
 
   void RecordBackgroundError(const Status& s);
 
