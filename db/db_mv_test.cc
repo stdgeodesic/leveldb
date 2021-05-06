@@ -258,7 +258,7 @@ class DBTest : public testing::Test {
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions() {
     option_config_++;
-    if (option_config_ >= kEnd) {
+    if (option_config_ > kDefault) {  // MVLevelDB: only test default option
       return false;
     } else {
       DestroyAndReopen();
@@ -674,6 +674,18 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     ASSERT_EQ("v1", GetMV("foo", 200, period));
     // Release sync calls.
     env_->delay_data_sync_.store(false, std::memory_order_release);
+  } while (ChangeOptions());
+}
+
+TEST_F(DBTest, GetFromVersions) {
+  do {
+    Options options = CurrentOptions();
+    options.multi_version = true;
+    Reopen(&options);
+    auto* period = new ValidTimePeriod(0,0);
+    ASSERT_LEVELDB_OK(PutMV("foo", 100, "v1"));
+    dbfull()->TEST_CompactMemTable();
+    ASSERT_EQ("v1", GetMV("foo", 100, period));
   } while (ChangeOptions());
 }
 

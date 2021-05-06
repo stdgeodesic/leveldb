@@ -545,10 +545,14 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   // should not be added to the manifest.
   int level = 0;
   if (s.ok() && meta.file_size > 0) {
-    const Slice min_user_key = meta.smallest.user_key();
-    const Slice max_user_key = meta.largest.user_key();
-    if (base != nullptr) {
-      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+    if (options_.multi_version) {
+      // MVLevelDB: we only have 1 on-disk level.
+    } else {
+      const Slice min_user_key = meta.smallest.user_key();
+      const Slice max_user_key = meta.largest.user_key();
+      if (base != nullptr) {
+        level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+      }
     }
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
@@ -652,7 +656,9 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,
 
 Status DBImpl::TEST_CompactMemTable() {
   // nullptr batch means just wait for earlier writes to be done
-  Status s = Write(WriteOptions(), nullptr);
+  Status s;
+  if (options_.multi_version) { s = WriteMV(WriteOptions(), nullptr); }
+  else { s = Write(WriteOptions(), nullptr); }
   if (s.ok()) {
     // Wait until the compaction completes
     MutexLock l(&mutex_);
@@ -714,6 +720,11 @@ void DBImpl::BackgroundCall() {
     // No more background work when shutting down.
   } else if (!bg_error_.ok()) {
     // No more background work after a background error.
+  } else if (options_.multi_version) {
+    // MVLevelDB: We only have 1 on-disk level.
+    if (imm_ != nullptr) {
+      CompactMemTable();
+    }
   } else {
     BackgroundCompaction();
   }
@@ -1221,9 +1232,9 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
       // Done
     } else {
       // TODO
-      s = Status::NotFound("NOT_FOUND_IN_CACHE");
-//      s = current->Get(options, lkey, value, &stats);
-//      have_stat_update = true;
+//      s = Status::NotFound("NOT_FOUND_IN_CACHE");
+      s = current->GetMV(options, lkey, value, period, &stats);
+      have_stat_update = true;
     }
     mutex_.Lock();
   }

@@ -74,6 +74,9 @@ class Version {
 
   Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
              GetStats* stats);
+  // MVLevelDB version
+  Status GetMV(const ReadOptions&, const MVLookupKey& key, std::string* value,
+               ValidTimePeriod* period, GetStats* stats);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.

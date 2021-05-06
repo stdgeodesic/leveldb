@@ -4,6 +4,8 @@
 
 #include "leveldb/table.h"
 
+#include "db/dbformat.h"  // used by MVLevelDB
+
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
@@ -229,6 +231,55 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
       block_iter->Seek(k);
       if (block_iter->Valid()) {
         (*handle_result)(arg, block_iter->key(), block_iter->value());
+      }
+      s = block_iter->status();
+      delete block_iter;
+    }
+  }
+  if (s.ok()) {
+    s = iiter->status();
+  }
+  delete iiter;
+  return s;
+}
+
+Status Table::InternalGetMV(const ReadOptions& options,
+                            const Slice& k,
+                            void* arg,
+                            void (* handle_result)(void*, const Slice&,
+                                const ValidTimePeriod&, const Slice&)) {
+  Status s;
+  // Parse Multi-Version Timestamp
+  ParsedMVInternalKey parsed_key;
+  ParseMVInternalKey(k, &parsed_key);
+  ValidTime target_valid_time = parsed_key.valid_time;
+
+  // TODO
+  Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
+  iiter->Seek(k);
+  if (iiter->Valid()) {
+    Slice handle_value = iiter->value();
+    FilterBlockReader* filter = rep_->filter;
+    BlockHandle handle;
+    if (filter != nullptr && handle.DecodeFrom(&handle_value).ok() &&
+        !filter->KeyMayMatch(handle.offset(), k)) {
+      // Not found
+    } else {
+      Iterator* block_iter = BlockReader(this, options, iiter->value());
+      block_iter->Seek(k);
+      if (block_iter->Valid()) {
+        ParsedMVInternalKey entry;
+        ParseMVInternalKey(block_iter->key(), &entry);
+        while (target_valid_time < entry.valid_time) {
+          block_iter->Next();
+          if (!block_iter->Valid()) {
+            // Not found in this block
+            break;
+          }
+        }
+        ValidTimePeriod period(0,0);
+        period.lo = entry.valid_time;
+        (*handle_result)(arg, block_iter->key(), period, block_iter->value());
       }
       s = block_iter->status();
       delete block_iter;

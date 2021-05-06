@@ -25,7 +25,7 @@ namespace leveldb {
 // parameters set via options.
 namespace config {
 // Default: 7. Update VersionSet::LevelSummary in version_set.cc if kNumLevels changes
-static const int kNumLevels = 3;
+static const int kNumLevels = 1;
 
 // Level-0 compaction is started when we hit this many files.
 static const int kL0_CompactionTrigger = 400; // default: 4
