@@ -632,16 +632,48 @@ TEST_F(DBTest, ReadWriteOldVersion) {
 TEST_F(DBTest, PutDeleteGetOldVersion) {
   do {
     Options options = CurrentOptions();
-    options.multi_version = false;
+    options.multi_version = true;
     Reopen(&options);
     auto* period = new ValidTimePeriod(0,0);
-    // TODO
-    ASSERT_LEVELDB_OK(db_->Put(WriteOptions(), "foo", "v1"));
-    ASSERT_EQ("v1", Get("foo"));
-    ASSERT_LEVELDB_OK(db_->Put(WriteOptions(), "foo", "v2"));
-    ASSERT_EQ("v2", Get("foo"));
-    ASSERT_LEVELDB_OK(db_->Delete(WriteOptions(), "foo"));
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
+    ASSERT_LEVELDB_OK(db_->PutMV(WriteOptions(), "foo", 100, "v1"));
+    ASSERT_EQ("v1", GetMV("foo", 100, period));
+    ASSERT_LEVELDB_OK(db_->PutMV(WriteOptions(), "foo", 200, "v2"));
+    ASSERT_EQ("v2", GetMV("foo", 200, period));
+    ASSERT_LEVELDB_OK(db_->DeleteMV(WriteOptions(), "foo", 300));
+    ASSERT_EQ("NOT_FOUND", GetMV("foo", 300, period));
+  } while (ChangeOptions());
+}
+
+TEST_F(DBTest, GetFromImmutableLayer) {
+  do {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.write_buffer_size = 1024*1024*1024;  // Small write buffer
+    options.multi_version = true;
+    Reopen(&options);
+    auto* period = new ValidTimePeriod(0,0);
+
+    ASSERT_LEVELDB_OK(PutMV("foo", 100, "v1"));
+    ASSERT_EQ("v1", GetMV("foo", 100, period));
+
+    // Block sync calls.
+    env_->delay_data_sync_.store(true, std::memory_order_release);
+    PutMV("k1", 100, std::string(100000, 'x'));  // Fill memtable.
+    PutMV("k1", 120, std::string(100000, 'u'));  // Insert a new version of k1
+    dbfull()->TEST_MVCreateImmutableMemTable(150);  // Trigger compaction mem -> imm.
+    ASSERT_EQ(std::string(100000, 'x'), GetMV("k1", 100, period));
+    ASSERT_EQ(100, period->lo);
+    ASSERT_EQ(120, period->hi);
+    ASSERT_EQ(std::string(100000, 'u'), GetMV("k1", 120, period));
+    ASSERT_EQ(120, period->lo);
+    ASSERT_EQ(150, period->hi);
+    ASSERT_EQ(std::string(100000, 'u'), GetMV("k1", 160, period));
+    ASSERT_EQ(150, period->lo);
+    ASSERT_EQ(kMaxValidTime, period->hi);
+    PutMV("k2", 200, std::string(100000, 'y'));  // Trigger compaction.
+    ASSERT_EQ("v1", GetMV("foo", 200, period));
+    // Release sync calls.
+    env_->delay_data_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
 }
 

@@ -70,6 +70,8 @@ class DBImpl : public DB {
 
   // Force current memtable contents to be compacted.
   Status TEST_CompactMemTable();
+  // MVLevelDB version.
+  Status TEST_MVCreateImmutableMemTable(ValidTime vt);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).

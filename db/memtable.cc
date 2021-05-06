@@ -171,11 +171,12 @@ bool MemTable::GetMV(const MVLookupKey& key, std::string* value, ValidTimePeriod
     if (comparator_.comparator.user_comparator()->Compare(
         Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
       // Correct user key
-      ValidTime hi_ = kMaxValidTime;
+      ValidTime hi_ = std::min(kMaxValidTime, valid_time_hi_);
       ValidTime lo_ = DecodeFixed64(key_ptr + key_length - 8);
-      while (key.valid_time() < lo_) {  // retrieved key's valid time not overlap lookup key
+      while (key.valid_time() < lo_) {  // retrieved key's valid time not overlaps lookup key
         hi_ = lo_;
         iter.Next();
+        if (!iter.Valid()) return false;  // Not found in MemTable
         entry = iter.key();
         key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
         lo_ = DecodeFixed64(key_ptr + key_length - 8);

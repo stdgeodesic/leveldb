@@ -32,6 +32,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     // TODO: MVLevelDB version MVInternalKey
     if (options.multi_version) {
       meta->smallest.DecodeFromMV(iter->key());
+      meta->smallest_mv.DecodeFrom(iter->key());
     } else {
       meta->smallest.DecodeFrom(iter->key());
     }
@@ -44,6 +45,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       // TODO: MVLevelDB version MVInternalKey
       if (options.multi_version) {
         meta->largest.DecodeFromMV(key);
+        meta->largest_mv.DecodeFrom(key);
       } else {
         meta->largest.DecodeFrom(key);
       }

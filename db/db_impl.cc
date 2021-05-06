@@ -666,6 +666,18 @@ Status DBImpl::TEST_CompactMemTable() {
   return s;
 }
 
+// MVLevelDB version
+Status DBImpl::TEST_MVCreateImmutableMemTable(ValidTime vt) {
+  Status s = CreateImmutableMemTable(vt);
+  return s;
+//MutexLock l(&mutex_);
+//        imm_ = mem_;
+//        has_imm_.store(true, std::memory_order_release);
+//        mem_ = new MemTable(internal_comparator_);
+//        mem_->Ref();
+//  return Status::OK();
+}
+
 void DBImpl::RecordBackgroundError(const Status& s) {
   mutex_.AssertHeld();
   if (bg_error_.ok()) {
@@ -1643,10 +1655,16 @@ Status DBImpl::MakeRoomForWriteMV(bool force) {
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
       // TODO: preserve latest data entries in MemTable
-      imm_ = mem_;
-      has_imm_.store(true, std::memory_order_release);
-      mem_ = new MemTable(internal_comparator_);
-      mem_->Ref();
+      if (options_.multi_version) {
+        auto current = std::chrono::system_clock::now();
+        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
+        CreateImmutableMemTable(current_time);
+      } else {
+        imm_ = mem_;
+        has_imm_.store(true, std::memory_order_release);
+        mem_ = new MemTable(internal_comparator_);
+        mem_->Ref();
+      }
       force = false;
       MaybeScheduleCompaction();
     }
@@ -1688,6 +1706,8 @@ Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
     last_key = key;
   }
 
+  imm->Unref();
+
   // Copy active data entries from old MemTable to new MemTable
   uint64_t last_sequence = versions_->LastSequence();
   WriteBatchMVInternal::SetSequence(batch, last_sequence + 1);
@@ -1696,6 +1716,8 @@ Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
   // Add to log and apply to memtable.
   s = log_->AddRecord(WriteBatchMVInternal::Contents(batch));
   s = WriteBatchMVInternal::InsertInto(batch, mem_);
+
+  versions_->SetLastSequence(last_sequence);
 
   return s;
 }

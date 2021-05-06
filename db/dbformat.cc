@@ -99,7 +99,7 @@ void InternalKeyComparator::FindShortestSeparator(std::string* start,
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp,
                PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    // Set timestamp field to 0.
+    // Set timestamp field to 0. MVLevelDB
     if (multi_version) { PutFixed64(&tmp, kMinValidTime); }
     assert(this->Compare(*start, tmp) < 0);
     assert(this->Compare(tmp, limit) < 0);
@@ -117,6 +117,8 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp,
                PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+    // Set timestamp field to 0. MVLevelDB
+    if (multi_version) { PutFixed64(&tmp, kMinValidTime); }
     assert(this->Compare(*key, tmp) < 0);
     key->swap(tmp);
   }
