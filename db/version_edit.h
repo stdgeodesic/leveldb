@@ -24,6 +24,11 @@ struct FileMetaData {
   uint64_t file_size;    // File size in bytes
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
+  // MVLevelDB
+  MVInternalKey smallest_mv;
+  MVInternalKey largest_mv;
+  ValidTime start_time;
+  ValidTime end_time;
 };
 
 class VersionEdit {
@@ -67,6 +72,20 @@ class VersionEdit {
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
+    new_files_.push_back(std::make_pair(level, f));
+  }
+
+  // MVLevelDB: Add multi-version file which contains valid time member variables
+  void AddMVFile(int level, uint64_t file, uint64_t file_size,
+                 const InternalKey& smallest, const InternalKey& largest,
+                 ValidTime start, ValidTime end) {
+    FileMetaData f;
+    f.number = file;
+    f.file_size = file_size;
+    f.smallest = smallest;
+    f.largest = largest;
+    f.start_time = start;
+    f.end_time = end;
     new_files_.push_back(std::make_pair(level, f));
   }
 

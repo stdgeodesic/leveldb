@@ -391,6 +391,8 @@ if(LEVELDB_BUILD_TESTS)
     leveldb_test("db/db_mv_test.cc")
     leveldb_test("db/dbformat_mv_test.cc")
     leveldb_test("db/write_batch_mv_test.cc")
+    leveldb_test("db/version_edit_mv_test.cc")
+    leveldb_test("db/version_set_mv_test.cc")
   endif(NOT BUILD_SHARED_LIBS)
 endif(LEVELDB_BUILD_TESTS)
 
@@ -424,6 +426,8 @@ if(LEVELDB_BUILD_BENCHMARKS)
 
   if(NOT BUILD_SHARED_LIBS)
     leveldb_benchmark("benchmarks/db_bench.cc")
+    # MVLevelDB
+    leveldb_benchmark("benchmarks/db_mv_bench.cc")
   endif(NOT BUILD_SHARED_LIBS)
 
   check_library_exists(sqlite3 sqlite3_open "" HAVE_SQLITE3)

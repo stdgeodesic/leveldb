@@ -256,6 +256,7 @@ struct Saver {
   SaverState state;
   const Comparator* ucmp;
   Slice user_key;
+  ValidTimePeriod* period;
   std::string* value;
 };
 }  // namespace
@@ -268,6 +269,23 @@ static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
     if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
       s->state = (parsed_key.type == kTypeValue) ? kFound : kDeleted;
       if (s->state == kFound) {
+        s->value->assign(v.data(), v.size());
+      }
+    }
+  }
+}
+
+static void SaveValueMV(void* arg, const Slice& ikey, const ValidTimePeriod& period, const Slice& v) {
+  Saver* s = reinterpret_cast<Saver*>(arg);
+  ParsedMVInternalKey parsed_key;
+  if (!ParseMVInternalKey(ikey, &parsed_key)) {
+    s->state = kCorrupt;
+  } else {
+    if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
+      s->state = (parsed_key.type == kTypeValue) ? kFound : kDeleted;
+      if (s->state == kFound) {
+        s->period->lo = period.lo;
+        s->period->hi = period.hi;
         s->value->assign(v.data(), v.size());
       }
     }
@@ -396,6 +414,90 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
 
   ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
 
+  return state.found ? state.s : Status::NotFound(Slice());
+}
+
+Status Version::GetMV(const ReadOptions& options,
+                      const MVLookupKey& k,
+                      std::string* value,
+                      ValidTimePeriod* period,
+                      GetStats* stats) {
+  stats->seek_file = nullptr;
+  stats->seek_file_level = -1;
+
+  struct State {
+    Saver saver;
+    GetStats* stats;
+    const ReadOptions* options;
+    Slice ikey;
+    FileMetaData* last_file_read;
+    int last_file_read_level;
+
+    VersionSet* vset;
+    Status s;
+    bool found;
+
+    static bool Match(void* arg, int level, FileMetaData* f) {
+      State* state = reinterpret_cast<State*>(arg);
+
+      if (state->stats->seek_file == nullptr &&
+          state->last_file_read != nullptr) {
+        // We have had more than one seek for this read.  Charge the 1st file.
+        state->stats->seek_file = state->last_file_read;
+        state->stats->seek_file_level = state->last_file_read_level;
+      }
+
+      state->last_file_read = f;
+      state->last_file_read_level = level;
+
+      state->s = state->vset->table_cache_->GetMV(*state->options, f->number,
+                                                f->file_size, state->ikey,
+                                                &state->saver, SaveValueMV);
+      if (!state->s.ok()) {
+        state->found = true;
+        return false;
+      }
+      switch (state->saver.state) {
+        case kNotFound:
+          return true;  // Keep searching in other files
+        case kFound:
+          state->found = true;
+          return false;
+        case kDeleted:
+          return false;
+        case kCorrupt:
+          state->s =
+              Status::Corruption("corrupted key for ", state->saver.user_key);
+          state->found = true;
+          return false;
+      }
+
+      // Not reached. Added to avoid false compilation warnings of
+      // "control reaches end of non-void function".
+      return false;
+    }
+  };
+
+  // TODO
+  State state;
+  state.found = false;
+  state.stats = stats;
+  state.last_file_read = nullptr;
+  state.last_file_read_level = -1;
+
+  state.options = &options;
+  state.ikey = k.internal_key();
+  state.vset = vset_;
+
+  state.saver.state = kNotFound;
+  state.saver.ucmp = vset_->icmp_.user_comparator();
+  state.saver.user_key = k.user_key();
+  state.saver.period = period;
+  state.saver.value = value;
+
+  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+
+  // TODO
   return state.found ? state.s : Status::NotFound(Slice());
 }
 
@@ -1105,13 +1207,13 @@ int VersionSet::NumLevelFiles(int level) const {
 
 const char* VersionSet::LevelSummary(LevelSummaryStorage* scratch) const {
   // Update code if kNumLevels changes
-  static_assert(config::kNumLevels == 7, "");
+  static_assert(config::kNumLevels == 3, "");
   std::snprintf(
-      scratch->buffer, sizeof(scratch->buffer), "files[ %d %d %d %d %d %d %d ]",
+      scratch->buffer, sizeof(scratch->buffer), "files[ %d %d %d ]",
       int(current_->files_[0].size()), int(current_->files_[1].size()),
-      int(current_->files_[2].size()), int(current_->files_[3].size()),
-      int(current_->files_[4].size()), int(current_->files_[5].size()),
-      int(current_->files_[6].size()));
+      int(current_->files_[2].size()));//, int(current_->files_[3].size()),
+//      int(current_->files_[4].size()), int(current_->files_[5].size()),
+//      int(current_->files_[6].size()));
   return scratch->buffer;
 }
 
