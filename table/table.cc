@@ -295,6 +295,82 @@ Status Table::InternalGetMV(const ReadOptions& options,
   return s;
 }
 
+Status Table::InternalGetMVRange(const ReadOptions& options,
+                                 SequenceNumber snapshot,
+                                 const KeyList& key_list,
+                                 const TimeRange& time_range,
+                                 ResultSet* result_set) {
+  Status s;
+  ValidTime vt_lo = time_range.lo;
+  ValidTime vt_hi = time_range.hi;
+  // TODO
+  for (auto key : key_list) {
+    MVLookupKey lkey(key, snapshot, vt_hi);
+    Slice ikey = lkey.internal_key();
+
+    bool end_search = false;
+
+    Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
+    iiter->Seek(ikey);
+    if (iiter->Valid()) {
+      while (!end_search) {
+        Slice handle_value = iiter->value();
+        FilterBlockReader* filter = rep_->filter;
+        BlockHandle handle;
+        if (filter != nullptr && handle.DecodeFrom(&handle_value).ok() &&
+            !filter->KeyMayMatch(handle.offset(), ikey)) {
+          // Not found
+        } else {
+          Iterator* block_iter = BlockReader(this, options, iiter->value());
+          block_iter->Seek(ikey);
+          ParsedMVInternalKey entry;
+          if (block_iter->Valid()) {
+            // TODO: use actual valid time
+            ValidTime hi_ = kMaxValidTime;
+            ValidTime lo_ = kMinValidTime;
+            ParseMVInternalKey(block_iter->key(), &entry);
+            lo_ = entry.valid_time;
+            while (hi_ > vt_lo) {
+              // Append current version to result set.
+              result_set->push_back(ResultVersion(key, block_iter->value(), lo_, hi_));
+              // Advance to previous version.
+              block_iter->Next();
+              if (block_iter->Valid()) {
+                hi_ = lo_;
+                ParseMVInternalKey(block_iter->key(), &entry);
+                if (entry.user_key.compare(key) == 0) {
+                  lo_ = entry.valid_time;
+                } else {
+                  // All versions for current key in this file have been visited.
+                  end_search = true;
+                  break;
+                }
+              } else {
+                // Skip to next block.
+                break;
+              }
+            }
+          } else {
+            // Not found in this block
+            end_search = true; // not needed
+            break;
+          }
+        }
+        // Advance to next block
+        if (end_search) break;
+        iiter->Next();
+        if (!iiter->Valid()) break;
+      }
+    }
+    if (s.ok()) {
+      s = iiter->status();
+    }
+    delete iiter;
+  }
+
+  return s;
+}
+
 uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   Iterator* index_iter =
       rep_->index_block->NewIterator(rep_->options.comparator);

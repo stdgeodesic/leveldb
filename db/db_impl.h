@@ -65,8 +65,8 @@ class DBImpl : public DB {
   Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) override;
   Status GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
                ValidTimePeriod* period, std::string* value) override;
-//  Status GetMVRange(const ReadOptions& options, const KeyRange& key_range, const TimeRange& time_range,
-//               ResultSet* result_set) override;
+  Status GetMVRange(const ReadOptions& options, const KeyList& key_list, const TimeRange& time_range,
+               ResultSet* result_set) override;
 
 
   // Compact any files in the named level that overlap [*begin,*end]

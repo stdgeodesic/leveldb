@@ -69,6 +69,8 @@ class MemTable {
              ValidTime vt, const Slice& value);
   bool GetMV(const MVLookupKey& key,  std::string* value, ValidTimePeriod* period,
              Status* s);
+  bool GetMVRange(const KeyList& key_list, const TimeRange& time_range,
+                  SequenceNumber snapshot, ResultSet* result_set, Status* s);
 
   void SetStartValidTime(ValidTime t) { valid_time_lo_ = t; }
   void SetEndValidTime(ValidTime t) { valid_time_hi_ = t; }

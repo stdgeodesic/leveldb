@@ -1239,10 +1239,9 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
     } else if (imm != nullptr && imm->GetMV(lkey, value, period, &s)) {
       // Done
     } else {
-      // TODO
 //      s = Status::NotFound("NOT_FOUND_IN_CACHE");
       s = current->GetMV(options, lkey, value, period, &stats);
-      // DEBUG
+      // TODO: DEBUG
       period->hi = 2021;
       have_stat_update = true;
     }
@@ -1259,12 +1258,55 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
   return s;
 }
 
-//Status DBImpl::GetMVRange(const ReadOptions& options,
-//                     const KeyRange& key_range,
-//                     const TimeRange& time_range,
-//                     ResultSet* result_set) {
-//
-//}
+Status DBImpl::GetMVRange(const ReadOptions& options,
+                     const KeyList& key_list,
+                     const TimeRange& time_range,
+                     ResultSet* result_set) {
+  Status s;
+  MutexLock l(&mutex_);
+  SequenceNumber snapshot;
+  if (options.snapshot != nullptr) {
+    snapshot =
+        static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
+  } else {
+    snapshot = versions_->LastSequence();
+  }
+
+  MemTable* mem = mem_;
+  MemTable* imm = imm_;
+  Version* current = versions_->current();
+  mem->Ref();
+  if (imm != nullptr) imm->Ref();
+  current->Ref();
+
+  bool have_stat_update = false;
+  Version::GetStats stats;
+
+  {
+    mutex_.Unlock();
+    if (TimeOverLapping(TimeRange(mem->GetStartValidTime(), mem->GetEndValidTime()), time_range)) {
+      mem->GetMVRange(key_list, time_range, snapshot, result_set, &s);
+    }
+    if (imm != nullptr && TimeOverLapping(TimeRange(imm->GetStartValidTime(), imm->GetEndValidTime()), time_range)) {
+      imm->GetMVRange(key_list, time_range, snapshot, result_set, &s);
+    }
+    // if (imm != nullptr && imm->GetStartValidTime() > time_range.lo) {
+
+    // Need to search more files
+    // TODO: Not implemented
+    s = current->GetMVRange(options, snapshot, key_list, time_range, result_set, &stats);
+    mutex_.Lock();
+  }
+
+  if (have_stat_update && current->UpdateStats(stats)) {
+    MaybeScheduleCompaction();
+  }
+  mem->Unref();
+  if (imm != nullptr) imm->Unref();
+  current->Unref();
+
+  return s;
+}
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;

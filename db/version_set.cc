@@ -365,6 +365,25 @@ void Version::ForEachOverlappingMV(Slice user_key, ValidTime vt, Slice internal_
   }
 }
 
+void Version::ForEachOverlappingMVRange(const KeyList& key_list, const TimeRange& time_range,
+                                 void* arg, void (*func)(void*, int, FileMetaData*)) {
+  // Search level-0 in order from newest to oldest.
+  std::vector<FileMetaData*> tmp;
+  tmp.reserve(files_[0].size());
+  for (uint32_t i = 0; i < files_[0].size(); i++) {
+    FileMetaData* f = files_[0][i];
+    if (TimeOverLapping(time_range, TimeRange(f->start_time, f->end_time))) {
+      tmp.push_back(f);
+    }
+  }
+  if (!tmp.empty()) {
+    std::sort(tmp.begin(), tmp.end(), NewestFirst);
+    for (uint32_t i = 0; i < tmp.size(); i++) {
+      (*func)(arg, 0, tmp[i]);
+    }
+  }
+}
+
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
                     std::string* value, GetStats* stats) {
   stats->seek_file = nullptr;
@@ -524,6 +543,73 @@ Status Version::GetMV(const ReadOptions& options,
   ForEachOverlappingMV(state.saver.user_key, k.valid_time(), state.ikey, &state, &State::Match);
 
   // TODO
+  return state.found ? state.s : Status::NotFound(Slice());
+}
+
+Status Version::GetMVRange(const ReadOptions& options, SequenceNumber snapshot, const KeyList& key_list,
+                    const TimeRange& time_range, ResultSet* result_set,
+                    GetStats* stats) {
+  stats->seek_file = nullptr;
+  stats->seek_file_level = -1;
+
+  int init_result_set_size = result_set->size();
+
+  struct State {
+//    Saver saver;
+    GetStats* stats;
+    const ReadOptions* options;
+//    Slice ikey;
+    SequenceNumber* snapshot;
+    const KeyList* key_list;
+    const TimeRange* time_range;
+    ResultSet* result_set;
+
+    FileMetaData* last_file_read;
+    int last_file_read_level;
+
+    VersionSet* vset;
+    Status s;
+    bool found;
+
+    static void Match(void* arg, int level, FileMetaData* f) {
+      State* state = reinterpret_cast<State*>(arg);
+
+      if (state->stats->seek_file == nullptr &&
+          state->last_file_read != nullptr) {
+        // We have had more than one seek for this read.  Charge the 1st file.
+        state->stats->seek_file = state->last_file_read;
+        state->stats->seek_file_level = state->last_file_read_level;
+      }
+
+      state->last_file_read = f;
+      state->last_file_read_level = level;
+
+      state->s = state->vset->table_cache_->GetMVRange(*state->options, f->number,
+                                                       f->file_size, *state->snapshot,
+                                                       *state->key_list, *state->time_range,
+                                                       &(*state->result_set));
+    }
+  };
+
+  // TODO
+  State state;
+  state.found = false;
+  state.stats = stats;
+  state.last_file_read = nullptr;
+  state.last_file_read_level = -1;
+
+  state.options = &options;
+  state.snapshot = &snapshot;
+  state.key_list = &key_list;
+  state.time_range = &time_range;
+  state.result_set = result_set;
+  state.vset = vset_;
+
+
+  ForEachOverlappingMVRange(key_list, time_range, &state, &State::Match);
+
+  if (result_set->size() > init_result_set_size) state.found = true;
+
   return state.found ? state.s : Status::NotFound(Slice());
 }
 

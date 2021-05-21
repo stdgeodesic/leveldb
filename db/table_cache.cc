@@ -125,6 +125,25 @@ Status TableCache::GetMV(const ReadOptions& options, uint64_t file_number,
   return s;
 }
 
+Status TableCache::GetMVRange(const ReadOptions& options,
+                              uint64_t file_number,
+                              uint64_t file_size,
+                              SequenceNumber snapshot,
+                              const KeyList& key_list,
+                              const TimeRange& time_range,
+                              ResultSet* result_set) {
+  Cache::Handle* handle = nullptr;
+  Status s = FindTable(file_number, file_size, &handle);
+  if (s.ok()) {
+    Table* t = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
+    // TODO
+    s = t->InternalGetMVRange(options, snapshot, key_list, time_range, result_set);
+//    s = t->InternalGetMVRange(options, k, arg, handle_result);
+    cache_->Release(handle);
+  }
+  return s;
+}
+
 void TableCache::Evict(uint64_t file_number) {
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);

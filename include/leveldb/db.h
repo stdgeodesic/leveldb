@@ -105,10 +105,10 @@ class LEVELDB_EXPORT DB {
                ValidTime vt, ValidTimePeriod* period, std::string* value) {
     return Status::NotSupported("Multi-Version is not supported in current DB.");
   }
-//  virtual Status GetMVRange(const ReadOptions& options, const KeyRange& key_range,
-//                     const TimeRange& time_range, ResultSet* result_set) {
-//    return Status::NotSupported("Multi-Version is not supported in current DB.");
-//  }
+  virtual Status GetMVRange(const ReadOptions& options, const KeyList& key_list,
+                     const TimeRange& time_range, ResultSet* result_set) {
+    return Status::NotSupported("Multi-Version is not supported in current DB.");
+  }
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must

@@ -10,6 +10,9 @@
 #include "leveldb/export.h"
 #include "leveldb/iterator.h"
 
+// MVLevelDB
+#include "db/dbformat.h"
+
 namespace leveldb {
 
 class Block;
@@ -76,6 +79,11 @@ class LEVELDB_EXPORT Table {
   Status InternalGetMV(const ReadOptions&, const Slice& key, void* arg,
                        void (*handle_result)(void* arg, const Slice& k,
                            const ValidTimePeriod&, const Slice& v));
+  Status InternalGetMVRange(const ReadOptions& options,
+                                 SequenceNumber snapshot,
+                                 const KeyList& key_list,
+                                 const TimeRange& time_range,
+                                 ResultSet* result_set);
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);

@@ -77,6 +77,9 @@ class Version {
   // MVLevelDB version
   Status GetMV(const ReadOptions&, const MVLookupKey& key, std::string* value,
                ValidTimePeriod* period, GetStats* stats);
+  Status GetMVRange(const ReadOptions&, SequenceNumber snapshot, const KeyList& key_list,
+                    const TimeRange& time_range, ResultSet* result_set,
+                    GetStats* stats);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -152,6 +155,8 @@ class Version {
   // REQUIRES: valid time portion of internal_key == vt.
   void ForEachOverlappingMV(Slice user_key, ValidTime vt, Slice internal_key, void* arg,
                                  bool (*func)(void*, int, FileMetaData*));
+  void ForEachOverlappingMVRange(const KeyList& key_list, const TimeRange& time_range,
+                                 void* arg, void (*func)(void*, int, FileMetaData*));
 
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list

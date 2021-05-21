@@ -379,7 +379,11 @@ inline MVLookupKey::~MVLookupKey() {
 }
 
 // Convenience methods for extracting valid time from internal keys
-
+inline bool TimeOverLapping(TimeRange a, TimeRange b) {
+  if (a.hi < b.lo) return false;
+  if (b.hi < a.lo) return false;
+  return true;
+}
 
 }  // namespace leveldb
 

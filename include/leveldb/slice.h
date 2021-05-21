@@ -125,11 +125,14 @@ struct ValidTimePeriod {
 struct KeyRange {
   Slice lo;
   Slice hi;
+  bool KeyPoint() { return lo == hi; }
 };
 
 struct TimeRange {
   ValidTime lo;
   ValidTime hi;
+  bool TimePoint() { return lo == hi; }
+  TimeRange(ValidTime l, ValidTime h) : lo(l), hi(h) {}
 };
 
 struct ResultVersion {
@@ -137,8 +140,11 @@ struct ResultVersion {
   Slice value;
   ValidTime lo;
   ValidTime hi;
+  ResultVersion(const Slice& k, const Slice& v, const ValidTime l, const ValidTime h)
+                :key(k), value(v), lo(l), hi(h) {}
 };
 
+using KeyList = std::vector<Slice>;
 using ResultSet = std::vector<ResultVersion>;
 
 

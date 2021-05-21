@@ -43,6 +43,10 @@ class TableCache {
   Status GetMV(const ReadOptions& options, uint64_t file_number,
                uint64_t file_size, const Slice& k, void* arg,
                void (*handle_result)(void*, const Slice&, const ValidTimePeriod&, const Slice&));
+  // TODO
+  Status GetMVRange(const ReadOptions& options, uint64_t file_number, SequenceNumber snapshot,
+                    uint64_t file_size, const KeyList& key_list, const TimeRange& time_range,
+                    ResultSet* result_set);
 
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
