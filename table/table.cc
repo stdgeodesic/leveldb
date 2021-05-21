@@ -267,8 +267,8 @@ Status Table::InternalGetMV(const ReadOptions& options,
     } else {
       Iterator* block_iter = BlockReader(this, options, iiter->value());
       block_iter->Seek(k);
+      ParsedMVInternalKey entry;
       if (block_iter->Valid()) {
-        ParsedMVInternalKey entry;
         ParseMVInternalKey(block_iter->key(), &entry);
         while (target_valid_time < entry.valid_time) {
           block_iter->Next();
@@ -276,7 +276,10 @@ Status Table::InternalGetMV(const ReadOptions& options,
             // Not found in this block
             break;
           }
+          ParseMVInternalKey(block_iter->key(), &entry);
         }
+      }
+      if (block_iter->Valid()) {
         ValidTimePeriod period(0,0);
         period.lo = entry.valid_time;
         (*handle_result)(arg, block_iter->key(), period, block_iter->value());

@@ -95,7 +95,7 @@ class MemTable {
   Table table_;
 
   // MVLevelDB timestamp
-  ValidTime valid_time_lo_;
+  ValidTime valid_time_lo_ = 0;
   ValidTime valid_time_hi_ = kMaxValidTime;  // default: unlimited
 };
 

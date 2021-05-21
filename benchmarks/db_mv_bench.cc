@@ -8,9 +8,13 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <chrono>
+#include <ctime>
+
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
+#include "db/db_impl.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/write_batch.h"
@@ -45,22 +49,27 @@
 //      sstables    -- Print sstable info
 //      heapprofile -- Dump a heap profile (if supported by this port)
 static const char* FLAGS_benchmarks =
-    "fillseq,"
-    "fillsync,"
-    "fillrandom,"
-    "overwrite,"
-    "readrandom,"
-    "readrandom,"  // Extra run to allow previous compactions to quiesce
-    "readseq,"
-    "readreverse,"
-    "compact,"
-    "readrandom,"
-    "readseq,"
-    "readreverse,"
-    "fill100K,"
-    "crc32c,"
-    "snappycomp,"
-    "snappyuncomp,";
+    "fillrandom(mv),"
+    "readrandom(mv),";
+//    "fillseq,"
+//    "fillseq(mv),"
+//    "fillsync,"
+//    "fillrandom,"
+//    "fillrandom(mv),"
+//    "overwrite,"
+//    "readrandom(mv),"
+//    "readrandom,"
+//    "readrandom,"  // Extra run to allow previous compactions to quiesce
+//    "readseq,"
+//    "readreverse,";
+//    "compact,"
+//    "readrandom,"
+//    "readseq,"
+//    "readreverse,"
+//    "fill100K,"
+//    "crc32c,"
+//    "snappycomp,"
+//    "snappyuncomp,";
 
 // Number of key/values to place in database
 static int FLAGS_num = 1000000;
@@ -79,7 +88,7 @@ static int FLAGS_value_size = 100;
 static double FLAGS_compression_ratio = 0.5;
 
 // Print histogram of operation timings
-static bool FLAGS_histogram = false;
+static bool FLAGS_histogram = true;
 
 // Count the number of string comparisons performed
 static bool FLAGS_comparisons = false;
@@ -109,6 +118,11 @@ static int FLAGS_bloom_bits = -1;
 
 // Common key prefix length.
 static int FLAGS_key_prefix = 0;
+
+// Random key generate range. default is FLAGS_num.
+// [0, FLAGS_rand_key_range)
+static int FLAGS_rand_key_range = -1;
+
 
 // If true, do not destroy the existing database.  If you set this
 // flag and also specify a benchmark that wants a fresh database, that
@@ -380,6 +394,10 @@ class Benchmark {
   CountComparator count_comparator_;
   int total_thread_count_;
 
+  ValidTime time_lo_ = 0;
+  ValidTime time_hi_ = 0;
+  ValidTime current_ = 0;
+
   void PrintHeader() {
     const int kKeySize = 16 + FLAGS_key_prefix;
     PrintEnvironment();
@@ -490,6 +508,15 @@ class Benchmark {
     delete filter_policy_;
   }
 
+  uint64_t Size(const Slice& start, const Slice& limit) {
+    Range r(start, limit);
+    uint64_t size;
+    db_->GetApproximateSizes(&r, 1, &size);
+    return size;
+  }
+
+  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
+
   void Run() {
     PrintHeader();
     Open();
@@ -524,6 +551,9 @@ class Benchmark {
       } else if (name == Slice("fillseq")) {
         fresh_db = true;
         method = &Benchmark::WriteSeq;
+      } else if (name == Slice("fillseq(mv)")){
+        fresh_db = true;
+        method = &Benchmark::WriteSeqMV;
       } else if (name == Slice("fillbatch")) {
         fresh_db = true;
         entries_per_batch_ = 1000;
@@ -531,6 +561,9 @@ class Benchmark {
       } else if (name == Slice("fillrandom")) {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
+      } else if (name == Slice("fillrandom(mv)")) {
+        fresh_db = true;
+        method = &Benchmark::WriteRandomMV;
       } else if (name == Slice("overwrite")) {
         fresh_db = false;
         method = &Benchmark::WriteRandom;
@@ -550,6 +583,8 @@ class Benchmark {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
         method = &Benchmark::ReadRandom;
+      } else if (name == Slice("readrandom(mv)")) {
+        method = &Benchmark::ReadRandomMV;
       } else if (name == Slice("readmissing")) {
         method = &Benchmark::ReadMissing;
       } else if (name == Slice("seekrandom")) {
@@ -771,6 +806,8 @@ class Benchmark {
     options.max_open_files = FLAGS_open_files;
     options.filter_policy = filter_policy_;
     options.reuse_logs = FLAGS_reuse_logs;
+    // MVLevelDB
+    options.multi_version = true;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -787,8 +824,10 @@ class Benchmark {
   }
 
   void WriteSeq(ThreadState* thread) { DoWrite(thread, true); }
+  void WriteSeqMV(ThreadState* thread) { DoWriteMV(thread, true); }
 
   void WriteRandom(ThreadState* thread) { DoWrite(thread, false); }
+  void WriteRandomMV(ThreadState* thread) { DoWriteMV(thread, false); }
 
   void DoWrite(ThreadState* thread, bool seq) {
     if (num_ != FLAGS_num) {
@@ -805,7 +844,7 @@ class Benchmark {
     for (int i = 0; i < num_; i += entries_per_batch_) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
-        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
+        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_rand_key_range);
         key.Set(k);
         batch.Put(key.slice(), gen.Generate(value_size_));
         bytes += value_size_ + key.slice().size();
@@ -818,6 +857,58 @@ class Benchmark {
       }
     }
     thread->stats.AddBytes(bytes);
+    // Print db size
+    char size_msg[100];
+    std::snprintf(size_msg, sizeof(size_msg), "(Approx size: %llu)",
+                  Size(Slice("0"), Slice(std::to_string(num_))));
+    thread->stats.AddMessage(size_msg);
+  }
+
+  void DoWriteMV(ThreadState* thread, bool seq) {
+    if (num_ != FLAGS_num) {
+      char msg[100];
+      std::snprintf(msg, sizeof(msg), "(%d ops)", num_);
+      thread->stats.AddMessage(msg);
+    }
+
+    RandomGenerator gen;
+    WriteBatchMV batch;
+    Status s;
+    int64_t bytes = 0;
+    KeyBuffer key;
+
+//    // Set start time
+//    auto start = std::chrono::system_clock::now().time_since_epoch();
+//    time_lo_ = std::chrono::duration_cast<std::chrono::milliseconds>(start).count();
+
+    for (int i = 0; i < num_; i += entries_per_batch_) {
+      batch.Clear();
+      for (int j = 0; j < entries_per_batch_; j++) {
+        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_rand_key_range);
+        key.Set(k);
+//        auto current = std::chrono::system_clock::now().time_since_epoch();
+//        std::time_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(current).count();
+        current_ += thread->rand.Uniform(10);
+        batch.Put(key.slice(), current_, gen.Generate(value_size_));
+        bytes += value_size_ + key.slice().size() + 8;
+        thread->stats.FinishedSingleOp();
+      }
+      s = db_->WriteMV(write_options_, &batch);
+      dbfull()->SetDBCurrentTime(current_);
+      if (!s.ok()) {
+        std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+        std::exit(1);
+      }
+    }
+    thread->stats.AddBytes(bytes);
+    // Set end time
+    time_hi_ = current_;
+    // Print db size
+    dbfull()->TEST_CompactMemTable();
+    char size_msg[100];
+    std::snprintf(size_msg, sizeof(size_msg), "(Approx size: %llu)",
+                  Size(Slice("0"), Slice(std::to_string(num_))));
+    thread->stats.AddMessage(size_msg);
   }
 
   void ReadSequential(ThreadState* thread) {
@@ -861,6 +952,38 @@ class Benchmark {
     }
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadRandomMV(ThreadState* thread) {
+    ReadOptions options;
+    // Disable read cache
+    options.fill_cache = false;
+    std::string value;
+    int found = 0;
+    int found_in_files = 0;
+    KeyBuffer key;
+    for (int i = 0; i < reads_; i++) {
+      const int k = thread->rand.Uniform(FLAGS_rand_key_range);
+      key.Set(k);
+//    auto start = std::chrono::system_clock::now().time_since_epoch();
+//    time_lo_ = std::chrono::duration_cast<std::chrono::milliseconds>(start).count();
+      ValidTimePeriod period(0,0);
+      if (db_->GetMV(options, key.slice(), time_lo_ + thread->rand.Uniform(time_hi_),
+                     &period, &value).ok()) {
+        found++;
+        if (period.hi == 2021) found_in_files++;
+      }
+//      if (db_->Get(options, key.slice(), &value).ok()) {
+//        found++;
+//      }
+      thread->stats.FinishedSingleOp();
+    }
+    char msg[100];
+    std::snprintf(msg, sizeof(msg), "(%d of %d found, %d found in files)", found, num_, found_in_files);
+    thread->stats.AddMessage(msg);
+
+    std::snprintf(msg, sizeof(msg), "(Time range: %llu to %llu)", time_lo_, time_hi_);
     thread->stats.AddMessage(msg);
   }
 
@@ -1023,6 +1146,7 @@ int main(int argc, char** argv) {
   FLAGS_max_file_size = leveldb::Options().max_file_size;
   FLAGS_block_size = leveldb::Options().block_size;
   FLAGS_open_files = leveldb::Options().max_open_files;
+  FLAGS_rand_key_range = FLAGS_num;
   std::string default_db_path;
 
   for (int i = 1; i < argc; i++) {
@@ -1069,6 +1193,10 @@ int main(int argc, char** argv) {
       FLAGS_open_files = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
+    } else if (sscanf(argv[i], "--gtest_color=%c", &junk) == 1) {
+      // Dummy flag because CLion adds --gtest_color=no argument to non-gtests
+    } else if (sscanf(argv[i], "--rand_key_range=%d%c", &n, &junk) == 1) {
+      FLAGS_rand_key_range = n;
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);

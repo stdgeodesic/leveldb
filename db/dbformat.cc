@@ -73,7 +73,19 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {
-      r = +1;
+      if (multi_version) {
+        const ValidTime at = DecodeFixed64(akey.data() + akey.size() - 8);
+        const ValidTime bt = DecodeFixed64(bkey.data() + bkey.size() - 8);
+        if (at > bt) {
+          r = -1;
+        } else if (at < bt) {
+          r = +1;
+        } else {
+          r = +1;
+        }
+      } else {
+        r = +1;
+      }
     }
   }
   return r;

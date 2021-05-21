@@ -151,6 +151,7 @@ class InternalKeyComparator : public Comparator {
   const Comparator* user_comparator() const { return user_comparator_; }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
+  int Compare(const MVInternalKey& a, const MVInternalKey& b) const;
 };
 //// The internal key comparator used in MVLevelDB
 //class MVInternalKeyComparator : public InternalKeyComparator {
@@ -211,6 +212,14 @@ class InternalKey {
     return rep_;
   }
 
+  // DEBUG
+  Slice EncodeToDefaultMVKey() const {
+    assert(!rep_.empty());
+    std::string tmp =rep_;
+    PutFixed64(&tmp, kMinValidTime);
+    return tmp;
+  }
+
   Slice user_key() const { return ExtractUserKey(rep_); }
 
   void SetFrom(const ParsedInternalKey& p) {
@@ -256,9 +265,16 @@ class MVInternalKey {
 
 inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
+  if (multi_version) {
+    return Compare(a.EncodeToDefaultMVKey(), b.EncodeToDefaultMVKey());
+  } else {
+    return Compare(a.Encode(), b.Encode());
+  }
+}
+inline int InternalKeyComparator::Compare(const MVInternalKey& a,
+                                          const MVInternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
-
 //inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
 //                                          const MVInternalKey& b) const {
 //  return Compare(a.Encode(), b.Encode());

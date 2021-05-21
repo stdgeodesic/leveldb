@@ -20,6 +20,9 @@
 #include <cstring>
 #include <string>
 
+// MVLevelDB: for result set
+#include <vector>
+
 #include "leveldb/export.h"
 
 namespace leveldb {
@@ -117,6 +120,27 @@ struct ValidTimePeriod {
   ValidTime hi;
   ValidTimePeriod(ValidTime l, ValidTime h) : lo(l), hi(h) {}
 };
+
+// Range Query Data Structures
+struct KeyRange {
+  Slice lo;
+  Slice hi;
+};
+
+struct TimeRange {
+  ValidTime lo;
+  ValidTime hi;
+};
+
+struct ResultVersion {
+  Slice key;
+  Slice value;
+  ValidTime lo;
+  ValidTime hi;
+};
+
+using ResultSet = std::vector<ResultVersion>;
+
 
 }  // namespace leveldb
 

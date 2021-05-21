@@ -648,7 +648,7 @@ TEST_F(DBTest, GetFromImmutableLayer) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
-    options.write_buffer_size = 1024*1024*1024;  // Small write buffer
+    options.write_buffer_size = 1*1024*1024;  // Small write buffer
     options.multi_version = true;
     Reopen(&options);
     auto* period = new ValidTimePeriod(0,0);
@@ -680,12 +680,18 @@ TEST_F(DBTest, GetFromImmutableLayer) {
 TEST_F(DBTest, GetFromVersions) {
   do {
     Options options = CurrentOptions();
+    options.env = env_;
     options.multi_version = true;
     Reopen(&options);
     auto* period = new ValidTimePeriod(0,0);
     ASSERT_LEVELDB_OK(PutMV("foo", 100, "v1"));
+    ASSERT_EQ("v1", GetMV("foo", 100, period));
+    env_->delay_data_sync_.store(true, std::memory_order_release);
+//    dbfull()->TEST_MVCreateImmutableMemTable(150);
+    env_->delay_data_sync_.store(false, std::memory_order_release);
     dbfull()->TEST_CompactMemTable();
     ASSERT_EQ("v1", GetMV("foo", 100, period));
+    ASSERT_EQ(100, period->lo);
   } while (ChangeOptions());
 }
 

@@ -147,6 +147,11 @@ class Version {
   // REQUIRES: user portion of internal_key == user_key.
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
+  // MVLevelDB interface
+  // REQUIRES: user portion of internal_key == user_key.
+  // REQUIRES: valid time portion of internal_key == vt.
+  void ForEachOverlappingMV(Slice user_key, ValidTime vt, Slice internal_key, void* arg,
+                                 bool (*func)(void*, int, FileMetaData*));
 
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list

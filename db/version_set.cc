@@ -339,6 +339,32 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
   }
 }
 
+// MVLevelDB: only search Level0:
+void Version::ForEachOverlappingMV(Slice user_key, ValidTime vt, Slice internal_key, void* arg,
+                                 bool (*func)(void*, int, FileMetaData*)) {
+  const Comparator* ucmp = vset_->icmp_.user_comparator();
+
+  // Search level-0 in order from newest to oldest.
+  std::vector<FileMetaData*> tmp;
+  tmp.reserve(files_[0].size());
+  for (uint32_t i = 0; i < files_[0].size(); i++) {
+    FileMetaData* f = files_[0][i];
+    if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
+        ucmp->Compare(user_key, f->largest.user_key()) <= 0 &&
+        f->start_time <= vt && f->end_time >= vt) {
+      tmp.push_back(f);
+    }
+  }
+  if (!tmp.empty()) {
+    std::sort(tmp.begin(), tmp.end(), NewestFirst);
+    for (uint32_t i = 0; i < tmp.size(); i++) {
+      if (!(*func)(arg, 0, tmp[i])) {
+        return;
+      }
+    }
+  }
+}
+
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
                     std::string* value, GetStats* stats) {
   stats->seek_file = nullptr;
@@ -495,7 +521,7 @@ Status Version::GetMV(const ReadOptions& options,
   state.saver.period = period;
   state.saver.value = value;
 
-  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  ForEachOverlappingMV(state.saver.user_key, k.valid_time(), state.ikey, &state, &State::Match);
 
   // TODO
   return state.found ? state.s : Status::NotFound(Slice());
@@ -675,7 +701,13 @@ class VersionSet::Builder {
     const InternalKeyComparator* internal_comparator;
 
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
-      int r = internal_comparator->Compare(f1->smallest, f2->smallest);
+      // MVLevelDB
+      int r = 0;
+      if (!f1->smallest_mv.user_key().empty()) {
+        r = internal_comparator->Compare(f1->smallest_mv, f2->smallest_mv);
+      } else {
+        r = internal_comparator->Compare(f1->smallest, f2->smallest);
+      }
       if (r != 0) {
         return (r < 0);
       } else {

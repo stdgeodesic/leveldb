@@ -133,6 +133,8 @@ Options SanitizeOptions(const std::string& dbname,
 }
 
 static int TableCacheSize(const Options& sanitized_options) {
+  // MVLevelDB Debug: Can we disable Table Cache?
+//  if (sanitized_options.multi_version) return 0;
   // Reserve ten files or so for other uses and give the rest to TableCache.
   return sanitized_options.max_open_files - kNumNonTableCacheFiles;
 }
@@ -532,6 +534,10 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   {
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    if (options_.multi_version) {
+      meta.start_time = mem->GetStartValidTime();
+      meta.end_time = mem->GetEndValidTime();
+    }
     mutex_.Lock();
   }
 
@@ -547,15 +553,17 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   if (s.ok() && meta.file_size > 0) {
     if (options_.multi_version) {
       // MVLevelDB: we only have 1 on-disk level.
+      edit->AddMVFile(level, meta.number, meta.file_size, meta.smallest, meta.largest,
+                      meta.smallest_mv, meta.largest_mv, meta.start_time, meta.end_time);
     } else {
       const Slice min_user_key = meta.smallest.user_key();
       const Slice max_user_key = meta.largest.user_key();
       if (base != nullptr) {
         level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
       }
-    }
-    edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
+      edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
+    }
   }
 
   CompactionStats stats;
@@ -1234,6 +1242,8 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
       // TODO
 //      s = Status::NotFound("NOT_FOUND_IN_CACHE");
       s = current->GetMV(options, lkey, value, period, &stats);
+      // DEBUG
+      period->hi = 2021;
       have_stat_update = true;
     }
     mutex_.Lock();
@@ -1248,6 +1258,13 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
 
   return s;
 }
+
+//Status DBImpl::GetMVRange(const ReadOptions& options,
+//                     const KeyRange& key_range,
+//                     const TimeRange& time_range,
+//                     ResultSet* result_set) {
+//
+//}
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
@@ -1598,9 +1615,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_ = new log::Writer(lfile);
       // TODO MVLevelDB copy MemTable
       if (options_.multi_version) {
-        auto current = std::chrono::system_clock::now();
-        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
-        CreateImmutableMemTable(current_time);
+//        auto current = std::chrono::system_clock::now().time_since_epoch();
+//        std::time_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(current).count();
+        CreateImmutableMemTable(current_time_);
       } else {
         imm_ = mem_;
         has_imm_.store(true, std::memory_order_release);
@@ -1667,9 +1684,9 @@ Status DBImpl::MakeRoomForWriteMV(bool force) {
       log_ = new log::Writer(lfile);
       // TODO: preserve latest data entries in MemTable
       if (options_.multi_version) {
-        auto current = std::chrono::system_clock::now();
-        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
-        CreateImmutableMemTable(current_time);
+//        auto current = std::chrono::system_clock::now();
+//        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
+        CreateImmutableMemTable(current_time_);
       } else {
         imm_ = mem_;
         has_imm_.store(true, std::memory_order_release);

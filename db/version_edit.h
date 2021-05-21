@@ -78,12 +78,15 @@ class VersionEdit {
   // MVLevelDB: Add multi-version file which contains valid time member variables
   void AddMVFile(int level, uint64_t file, uint64_t file_size,
                  const InternalKey& smallest, const InternalKey& largest,
+                 const MVInternalKey& smallest_mv, const MVInternalKey& largest_mv,
                  ValidTime start, ValidTime end) {
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
+    f.smallest_mv = smallest_mv;
+    f.largest_mv = largest_mv;
     f.start_time = start;
     f.end_time = end;
     new_files_.push_back(std::make_pair(level, f));

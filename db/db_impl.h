@@ -54,6 +54,8 @@ class DBImpl : public DB {
   void CompactRange(const Slice* begin, const Slice* end) override;
 
   // Extra methods (for testing) that are not in the public DB interface
+  void SetDBCurrentTime(ValidTime vt) { current_time_ = vt;}
+  ValidTime GetDBCurrentTime() { return current_time_; }
 
   // MVLevelDB Extra methods
   Status PutMV(const WriteOptions&, const Slice& key, ValidTime vt,
@@ -63,6 +65,8 @@ class DBImpl : public DB {
   Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) override;
   Status GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
                ValidTimePeriod* period, std::string* value) override;
+//  Status GetMVRange(const ReadOptions& options, const KeyRange& key_range, const TimeRange& time_range,
+//               ResultSet* result_set) override;
 
 
   // Compact any files in the named level that overlap [*begin,*end]
@@ -231,6 +235,8 @@ class DBImpl : public DB {
   // MVLevelDB extra private members
   std::deque<WriterMV*> writers_mv_ GUARDED_BY(mutex_);
   WriteBatchMV* tmp_batch_mv_ GUARDED_BY(mutex_);
+
+  ValidTime current_time_ = 0;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
