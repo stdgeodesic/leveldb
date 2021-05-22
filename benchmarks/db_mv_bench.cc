@@ -50,7 +50,8 @@
 //      heapprofile -- Dump a heap profile (if supported by this port)
 static const char* FLAGS_benchmarks =
     "fillrandom(mv),"
-    "readrandom(mv),";
+    "readrandom(mv),"
+    "readrange(mv),";
 //    "fillseq,"
 //    "fillseq(mv),"
 //    "fillsync,"
@@ -122,6 +123,9 @@ static int FLAGS_key_prefix = 0;
 // Random key generate range. default is FLAGS_num.
 // [0, FLAGS_rand_key_range)
 static int FLAGS_rand_key_range = -1;
+
+static int FLAGS_key_range = 1;
+static int FLAGS_time_range = 1;
 
 
 // If true, do not destroy the existing database.  If you set this
@@ -585,6 +589,8 @@ class Benchmark {
         method = &Benchmark::ReadRandom;
       } else if (name == Slice("readrandom(mv)")) {
         method = &Benchmark::ReadRandomMV;
+      } else if (name == Slice("readrange(mv)")) {
+        method = &Benchmark::ReadRandomRange;
       } else if (name == Slice("readmissing")) {
         method = &Benchmark::ReadMissing;
       } else if (name == Slice("seekrandom")) {
@@ -987,6 +993,38 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
+  void ReadRandomRange(ThreadState* thread) {
+    ReadOptions options;
+    options.fill_cache = false;
+    KeyBuffer key;
+    int found = 0;
+    for (int i = 0; i < reads_; i++) {
+      KeyList k_list;
+      ResultSet res;
+      const int k = thread->rand.Uniform(FLAGS_rand_key_range);
+      for (int j = 0; j < FLAGS_key_range; j++) {
+        // Build Key List
+        const int ks = k + j;
+        key.Set(ks);
+        k_list.push_back(key.slice());
+      }
+      ValidTime time_base = time_lo_ + thread->rand.Uniform(time_hi_);
+      if (db_->GetMVRange(options, k_list, TimeRange(time_base, time_base+FLAGS_time_range),
+                          &res).ok()) {
+        found += res.size();
+      }
+      thread->stats.FinishedSingleOp();
+      res.clear();
+    }
+    // Print summary
+    char msg[100];
+    std::snprintf(msg, sizeof(msg), "(%d found)", found);
+    thread->stats.AddMessage(msg);
+
+    std::snprintf(msg, sizeof(msg), "(Time range: %llu to %llu)", time_lo_, time_hi_);
+    thread->stats.AddMessage(msg);
+  }
+
   void ReadMissing(ThreadState* thread) {
     ReadOptions options;
     std::string value;
@@ -1197,6 +1235,10 @@ int main(int argc, char** argv) {
       // Dummy flag because CLion adds --gtest_color=no argument to non-gtests
     } else if (sscanf(argv[i], "--rand_key_range=%d%c", &n, &junk) == 1) {
       FLAGS_rand_key_range = n;
+    } else if (sscanf(argv[i], "--key_range=%d%c", &n, &junk) == 1) {
+      FLAGS_key_range = n;
+    } else if (sscanf(argv[i], "--time_range=%d%c", &n, &junk) == 1) {
+      FLAGS_time_range = n;
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);

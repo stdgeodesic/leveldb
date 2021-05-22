@@ -308,6 +308,10 @@ Status Table::InternalGetMVRange(const ReadOptions& options,
     MVLookupKey lkey(key, snapshot, vt_hi);
     Slice ikey = lkey.internal_key();
 
+    // TODO: use actual valid time
+    ValidTime hi_ = kMaxValidTime;
+    ValidTime lo_ = kMinValidTime;
+
     bool end_search = false;
 
     Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
@@ -325,18 +329,22 @@ Status Table::InternalGetMVRange(const ReadOptions& options,
           block_iter->Seek(ikey);
           ParsedMVInternalKey entry;
           if (block_iter->Valid()) {
-            // TODO: use actual valid time
-            ValidTime hi_ = kMaxValidTime;
-            ValidTime lo_ = kMinValidTime;
             ParseMVInternalKey(block_iter->key(), &entry);
+            // Verify user key
+            if (entry.user_key.compare(key) != 0) {
+              // Key not in this file
+              // Advance to next key in key_list
+              end_search = true;
+              break;
+            }
             lo_ = entry.valid_time;
             while (hi_ > vt_lo) {
               // Append current version to result set.
               result_set->push_back(ResultVersion(key, block_iter->value(), lo_, hi_));
               // Advance to previous version.
               block_iter->Next();
+              hi_ = lo_;  // Set the upper time bound for searching in next block
               if (block_iter->Valid()) {
-                hi_ = lo_;
                 ParseMVInternalKey(block_iter->key(), &entry);
                 if (entry.user_key.compare(key) == 0) {
                   lo_ = entry.valid_time;
@@ -350,6 +358,7 @@ Status Table::InternalGetMVRange(const ReadOptions& options,
                 break;
               }
             }
+            if (hi_ <= vt_lo ) end_search = true; // End search because time out of range
           } else {
             // Not found in this block
             end_search = true; // not needed

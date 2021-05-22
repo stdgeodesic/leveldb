@@ -1293,7 +1293,6 @@ Status DBImpl::GetMVRange(const ReadOptions& options,
     // if (imm != nullptr && imm->GetStartValidTime() > time_range.lo) {
 
     // Need to search more files
-    // TODO: Not implemented
     s = current->GetMVRange(options, snapshot, key_list, time_range, result_set, &stats);
     mutex_.Lock();
   }
