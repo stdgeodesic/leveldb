@@ -96,6 +96,8 @@ struct LEVELDB_EXPORT Options {
   // increase this if your database has a large working set (budget
   // one open file per 2MB of working set).
   int max_open_files = 1000;
+  // MVLevelDB Debug: disable CacheTable
+  bool disable_cache_table = false;
 
   // Control over blocks (user data is stored in a set of blocks, and
   // a block is the unit of reading from disk).

@@ -134,7 +134,7 @@ Options SanitizeOptions(const std::string& dbname,
 
 static int TableCacheSize(const Options& sanitized_options) {
   // MVLevelDB Debug: Can we disable Table Cache?
-//  if (sanitized_options.multi_version) return 0;
+  if (sanitized_options.disable_cache_table) return 0;
   // Reserve ten files or so for other uses and give the rest to TableCache.
   return sanitized_options.max_open_files - kNumNonTableCacheFiles;
 }

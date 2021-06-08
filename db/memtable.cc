@@ -3,10 +3,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/memtable.h"
+
 #include "db/dbformat.h"
+
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+
 #include "util/coding.h"
 
 namespace leveldb {
@@ -100,6 +103,7 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   Slice memkey = key.memtable_key();
+  Slice* a = new Slice();
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
   if (iter.Valid()) {
@@ -158,7 +162,8 @@ void MemTable::AddMV(SequenceNumber s, ValueType type, const Slice& key,
 }
 
 // TODO
-bool MemTable::GetMV(const MVLookupKey& key, std::string* value, ValidTimePeriod* period, Status* s) {
+bool MemTable::GetMV(const MVLookupKey& key, std::string* value,
+                     ValidTimePeriod* period, Status* s) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
   // Advances to the latest data version of the required key
@@ -169,12 +174,13 @@ bool MemTable::GetMV(const MVLookupKey& key, std::string* value, ValidTimePeriod
     uint32_t key_length;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
-        Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
+            Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
       // Correct user key
       // TODO: check upper valid time of the first-hit version
       ValidTime hi_ = std::min(kMaxValidTime, valid_time_hi_);
       ValidTime lo_ = DecodeFixed64(key_ptr + key_length - 8);
-      while (key.valid_time() < lo_) {  // retrieved key's valid time not overlaps lookup key
+      while (key.valid_time() <
+             lo_) {  // retrieved key's valid time not overlaps lookup key
         hi_ = lo_;
         iter.Next();
         if (!iter.Valid()) return false;  // Not found in MemTable
@@ -203,7 +209,8 @@ bool MemTable::GetMV(const MVLookupKey& key, std::string* value, ValidTimePeriod
 }
 
 bool MemTable::GetMVRange(const KeyList& key_list, const TimeRange& time_range,
-                          SequenceNumber snapshot, ResultSet* result_set, Status *s) {
+                          SequenceNumber snapshot, ResultSet* result_set,
+                          Status* s) {
   ValidTime vt_lo = time_range.lo;
   ValidTime vt_hi = time_range.hi;
   size_t init_result_set_size = result_set->size();
@@ -219,11 +226,11 @@ bool MemTable::GetMVRange(const KeyList& key_list, const TimeRange& time_range,
       uint32_t key_length;
       const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
       if (comparator_.comparator.user_comparator()->Compare(
-          Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
+              Slice(key_ptr, key_length - 16), key.user_key()) == 0) {
         // Correct user key
-        ValidTime hi_ = std::min(kMaxValidTime, valid_time_hi_); // imm_
+        ValidTime hi_ = std::min(kMaxValidTime, valid_time_hi_);  // imm_
         ValidTime lo_ = DecodeFixed64(key_ptr + key_length - 8);
-        while (hi_ > vt_lo) { // not inclusive
+        while (hi_ > vt_lo) {  // not inclusive
           // Parse current key and append to result set
           const uint64_t tag = DecodeFixed64(key_ptr + key_length - 16);
           switch (static_cast<ValueType>(tag & 0xff)) {
@@ -233,7 +240,8 @@ bool MemTable::GetMVRange(const KeyList& key_list, const TimeRange& time_range,
               break;
             }
             case kTypeDeletion:
-              result_set->push_back(ResultVersion(key.user_key(), Slice(), lo_, hi_));
+              result_set->push_back(
+                  ResultVersion(key.user_key(), Slice(), lo_, hi_));
               break;
           }
 
@@ -248,7 +256,7 @@ bool MemTable::GetMVRange(const KeyList& key_list, const TimeRange& time_range,
           key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
           lo_ = DecodeFixed64(key_ptr + key_length - 8);
           if (comparator_.comparator.user_comparator()->Compare(
-          Slice(key_ptr, key_length - 16), key.user_key()) != 0) {
+                  Slice(key_ptr, key_length - 16), key.user_key()) != 0) {
             // Next key
             break;
           }

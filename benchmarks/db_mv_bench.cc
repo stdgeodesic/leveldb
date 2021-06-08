@@ -50,8 +50,8 @@
 //      heapprofile -- Dump a heap profile (if supported by this port)
 static const char* FLAGS_benchmarks =
     "fillrandom(mv),"
-    "readrandom(mv),"
-    "readrange(mv),";
+    "readrandom(mv),";
+//    "readrange(mv),";
 //    "fillseq,"
 //    "fillseq(mv),"
 //    "fillsync,"
@@ -127,6 +127,12 @@ static int FLAGS_rand_key_range = -1;
 static int FLAGS_key_range = 1;
 static int FLAGS_time_range = 1;
 
+static bool FLAGS_disable_table_cache = false;
+
+static bool FLAGS_read_latest_version = false;
+
+// Flush to disk after write benchmark.
+static bool FLAGS_flush_to_disk = false;
 
 // If true, do not destroy the existing database.  If you set this
 // flag and also specify a benchmark that wants a fresh database, that
@@ -814,6 +820,7 @@ class Benchmark {
     options.reuse_logs = FLAGS_reuse_logs;
     // MVLevelDB
     options.multi_version = true;
+    options.disable_cache_table = FLAGS_disable_table_cache;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -864,6 +871,7 @@ class Benchmark {
     }
     thread->stats.AddBytes(bytes);
     // Print db size
+    if (FLAGS_flush_to_disk) dbfull()->TEST_CompactMemTable();
     char size_msg[100];
     std::snprintf(size_msg, sizeof(size_msg), "(Approx size: %llu)",
                   Size(Slice("0"), Slice(std::to_string(num_))));
@@ -975,7 +983,8 @@ class Benchmark {
 //    auto start = std::chrono::system_clock::now().time_since_epoch();
 //    time_lo_ = std::chrono::duration_cast<std::chrono::milliseconds>(start).count();
       ValidTimePeriod period(0,0);
-      if (db_->GetMV(options, key.slice(), time_lo_ + thread->rand.Uniform(time_hi_),
+      int t = FLAGS_read_latest_version ? INT_MAX : time_lo_ + thread->rand.Uniform(time_hi_);
+      if (db_->GetMV(options, key.slice(), t,
                      &period, &value).ok()) {
         found++;
         if (period.hi == 2021) found_in_files++;
@@ -1239,6 +1248,15 @@ int main(int argc, char** argv) {
       FLAGS_key_range = n;
     } else if (sscanf(argv[i], "--time_range=%d%c", &n, &junk) == 1) {
       FLAGS_time_range = n;
+    } else if (sscanf(argv[i], "--disable_table_cache=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_disable_table_cache = n;
+    } else if (sscanf(argv[i], "--read_latest_version=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_read_latest_version = n;
+    } else if (sscanf(argv[i], "--flush_to_disk=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_flush_to_disk = n;
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);

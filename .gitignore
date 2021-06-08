@@ -6,3 +6,41 @@
 # Build directory.
 build/
 out/
+
+# clangd cache
+.cache/
+compile_commands.json
+
+####################################
+######## OS generated files ########
+####################################
+.DS_Store
+.DS_Store?
+*.swp
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+*~
+
+# JetBrains
+.idea/
+*/.idea/
+
+# CMake Binary Directory
+cmake-build-*/
+
+# VSCode Workspace settings
+.vscode/
+*/.vscode/
+
+# Pyenv Python Version
+.python-version
+
+# -----------------------
+# Languages
+# -----------------------
+# Python
+*.picklecache
