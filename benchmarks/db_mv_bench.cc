@@ -1193,7 +1193,7 @@ int main(int argc, char** argv) {
   FLAGS_max_file_size = leveldb::Options().max_file_size;
   FLAGS_block_size = leveldb::Options().block_size;
   FLAGS_open_files = leveldb::Options().max_open_files;
-  FLAGS_rand_key_range = FLAGS_num;
+  FLAGS_rand_key_range = 1000;
   std::string default_db_path;
 
   for (int i = 1; i < argc; i++) {
@@ -1261,6 +1261,11 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);
     }
+  }
+
+  // Sanitize Arguments
+  if (FLAGS_max_file_size < FLAGS_write_buffer_size) {
+    FLAGS_max_file_size = FLAGS_write_buffer_size;
   }
 
   leveldb::g_env = leveldb::Env::Default();
