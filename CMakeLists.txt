@@ -9,6 +9,9 @@ project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
 # MVLevelDB
 add_compile_definitions(LSMV)
 
+# export compile_commands.json for clangd
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # C standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
