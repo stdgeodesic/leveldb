@@ -7,8 +7,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <limits>
+#include <string>
 
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
@@ -24,17 +24,18 @@ namespace leveldb {
 // Grouping of constants.  We may want to make some of these
 // parameters set via options.
 namespace config {
-// Default: 7. Update VersionSet::LevelSummary in version_set.cc if kNumLevels changes
+// Default: 7. Update VersionSet::LevelSummary in version_set.cc if kNumLevels
+// changes
 static const int kNumLevels = 3;
 
 // Level-0 compaction is started when we hit this many files.
-static const int kL0_CompactionTrigger = 400; // default: 4
+static const int kL0_CompactionTrigger = 400;  // default: 4
 
 // Soft limit on number of level-0 files.  We slow down writes at this point.
-static const int kL0_SlowdownWritesTrigger = 800; // deafult: 8
+static const int kL0_SlowdownWritesTrigger = 800;  // deafult: 8
 
 // Maximum number of level-0 files.  We stop writes at this point.
-static const int kL0_StopWritesTrigger = 1200; // default: 12
+static const int kL0_StopWritesTrigger = 1200;  // default: 12
 
 // Maximum level to which a new compacted memtable is pushed if it
 // does not create overlap.  We try to push to level 2 to avoid the
@@ -94,8 +95,8 @@ struct ParsedMVInternalKey {
 
   ParsedMVInternalKey() {}
   ParsedMVInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t,
-                        ValidTime vt)
-  : user_key(u), sequence(seq), type(t), valid_time(vt) {}
+                      ValidTime vt)
+      : user_key(u), sequence(seq), type(t), valid_time(vt) {}
 };
 
 // Return the length of the encoding of "key".
@@ -118,7 +119,8 @@ void AppendMVInternalKey(std::string* result, const ParsedMVInternalKey& key);
 // On error, returns false, leaves "*result" in an undefined state.
 bool ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result);
 
-bool ParseMVInternalKey(const Slice& mv_internal_key, ParsedMVInternalKey* result);
+bool ParseMVInternalKey(const Slice& mv_internal_key,
+                        ParsedMVInternalKey* result);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -131,17 +133,24 @@ inline Slice MVExtractUserKey(const Slice& mv_internal_key) {
   return Slice(mv_internal_key.data(), mv_internal_key.size() - 16);
 }
 
+inline ValidTime ExtractValidTime(const Slice& mv_internal_key) {
+  assert(mv_internal_key.size() >= 16);
+  return DecodeFixed64(mv_internal_key.data() + mv_internal_key.size() - 8);
+}
+
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
 class InternalKeyComparator : public Comparator {
  private:
   const Comparator* user_comparator_;
-  // MVLevelDB: set multi_version to TRUE to omit timestamp field when extract user key
+  // MVLevelDB: set multi_version to TRUE to omit timestamp field when extract
+  // user key
   const bool multi_version = false;
 
  public:
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
-  explicit InternalKeyComparator(const Comparator* c, bool mv) : user_comparator_(c), multi_version(mv) {}
+  explicit InternalKeyComparator(const Comparator* c, bool mv)
+      : user_comparator_(c), multi_version(mv) {}
   const char* Name() const override;
   int Compare(const Slice& a, const Slice& b) const override;
   void FindShortestSeparator(std::string* start,
@@ -154,15 +163,15 @@ class InternalKeyComparator : public Comparator {
   int Compare(const MVInternalKey& a, const MVInternalKey& b) const;
 };
 //// The internal key comparator used in MVLevelDB
-//class MVInternalKeyComparator : public InternalKeyComparator {
+// class MVInternalKeyComparator : public InternalKeyComparator {
 // private:
 //  const Comparator* user_comparator_;
 //
 // public:
-//  explicit MVInternalKeyComparator(const Comparator* c) : InternalKeyComparator(c), user_comparator_(c) {}
-//  const char* Name() const override;
-//  int Compare(const Slice& a, const Slice& b) const override;
-//  void FindShortestSeparator(std::string* start,
+//  explicit MVInternalKeyComparator(const Comparator* c) :
+//  InternalKeyComparator(c), user_comparator_(c) {} const char* Name() const
+//  override; int Compare(const Slice& a, const Slice& b) const override; void
+//  FindShortestSeparator(std::string* start,
 //                             const Slice& limit) const override;
 //  void FindShortSuccessor(std::string* key) const override;
 //
@@ -215,7 +224,7 @@ class InternalKey {
   // DEBUG
   Slice EncodeToDefaultMVKey() const {
     assert(!rep_.empty());
-    std::string tmp =rep_;
+    std::string tmp = rep_;
     PutFixed64(&tmp, kMinValidTime);
     return tmp;
   }
@@ -255,6 +264,8 @@ class MVInternalKey {
 
   Slice user_key() const { return MVExtractUserKey(rep_); }
 
+  ValidTime valid_time() const { return ExtractValidTime(rep_); }
+
   void SetFrom(const ParsedMVInternalKey& p) {
     rep_.clear();
     AppendMVInternalKey(&rep_, p);
@@ -275,7 +286,7 @@ inline int InternalKeyComparator::Compare(const MVInternalKey& a,
                                           const MVInternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
-//inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
+// inline int MVInternalKeyComparator::Compare(const MVInternalKey& a,
 //                                          const MVInternalKey& b) const {
 //  return Compare(a.Encode(), b.Encode());
 //}
@@ -293,7 +304,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
 }
 
 inline bool ParseMVInternalKey(const Slice& mv_internal_key,
-                        ParsedMVInternalKey* result) {
+                               ParsedMVInternalKey* result) {
   const size_t n = mv_internal_key.size();
   if (n < 16) return false;
   uint64_t num = DecodeFixed64(mv_internal_key.data() + n - 16);
@@ -346,8 +357,7 @@ inline LookupKey::~LookupKey() {
 
 class MVLookupKey {
  public:
-  MVLookupKey(const Slice& user_key, SequenceNumber sequence,
-              ValidTime t);
+  MVLookupKey(const Slice& user_key, SequenceNumber sequence, ValidTime t);
 
   MVLookupKey(const MVLookupKey&) = delete;
   MVLookupKey& operator=(const MVLookupKey&) = delete;
@@ -371,7 +381,7 @@ class MVLookupKey {
   const char* start_;
   const char* kstart_;
   const char* end_;
-  char space_[200]; // Avoid allocation for short keys
+  char space_[200];  // Avoid allocation for short keys
 };
 
 inline MVLookupKey::~MVLookupKey() {

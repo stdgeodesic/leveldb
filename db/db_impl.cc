@@ -4,14 +4,6 @@
 
 #include "db/db_impl.h"
 
-#include <algorithm>
-#include <atomic>
-#include <cstdint>
-#include <cstdio>
-#include <set>
-#include <string>
-#include <vector>
-
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -22,11 +14,20 @@
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <set>
+#include <string>
+#include <vector>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/status.h"
 #include "leveldb/table.h"
 #include "leveldb/table_builder.h"
+
 #include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
@@ -553,8 +554,9 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   if (s.ok() && meta.file_size > 0) {
     if (options_.multi_version) {
       // MVLevelDB: we only have 1 on-disk level.
-      edit->AddMVFile(level, meta.number, meta.file_size, meta.smallest, meta.largest,
-                      meta.smallest_mv, meta.largest_mv, meta.start_time, meta.end_time);
+      edit->AddMVFile(level, meta.number, meta.file_size, meta.smallest,
+                      meta.largest, meta.smallest_mv, meta.largest_mv,
+                      meta.start_time, meta.end_time);
     } else {
       const Slice min_user_key = meta.smallest.user_key();
       const Slice max_user_key = meta.largest.user_key();
@@ -562,7 +564,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
         level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
       }
       edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
-                  meta.largest);
+                    meta.largest);
     }
   }
 
@@ -665,8 +667,11 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,
 Status DBImpl::TEST_CompactMemTable() {
   // nullptr batch means just wait for earlier writes to be done
   Status s;
-  if (options_.multi_version) { s = WriteMV(WriteOptions(), nullptr); }
-  else { s = Write(WriteOptions(), nullptr); }
+  if (options_.multi_version) {
+    s = WriteMV(WriteOptions(), nullptr);
+  } else {
+    s = Write(WriteOptions(), nullptr);
+  }
   if (s.ok()) {
     // Wait until the compaction completes
     MutexLock l(&mutex_);
@@ -684,12 +689,12 @@ Status DBImpl::TEST_CompactMemTable() {
 Status DBImpl::TEST_MVCreateImmutableMemTable(ValidTime vt) {
   Status s = CreateImmutableMemTable(vt);
   return s;
-//MutexLock l(&mutex_);
-//        imm_ = mem_;
-//        has_imm_.store(true, std::memory_order_release);
-//        mem_ = new MemTable(internal_comparator_);
-//        mem_->Ref();
-//  return Status::OK();
+  // MutexLock l(&mutex_);
+  //        imm_ = mem_;
+  //        has_imm_.store(true, std::memory_order_release);
+  //        mem_ = new MemTable(internal_comparator_);
+  //        mem_->Ref();
+  //  return Status::OK();
 }
 
 void DBImpl::RecordBackgroundError(const Status& s) {
@@ -1239,7 +1244,7 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
     } else if (imm != nullptr && imm->GetMV(lkey, value, period, &s)) {
       // Done
     } else {
-//      s = Status::NotFound("NOT_FOUND_IN_CACHE");
+      //      s = Status::NotFound("NOT_FOUND_IN_CACHE");
       s = current->GetMV(options, lkey, value, period, &stats);
       // TODO: DEBUG
       period->hi = 2021;
@@ -1258,10 +1263,8 @@ Status DBImpl::GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
   return s;
 }
 
-Status DBImpl::GetMVRange(const ReadOptions& options,
-                     const KeyList& key_list,
-                     const TimeRange& time_range,
-                     ResultSet* result_set) {
+Status DBImpl::GetMVRange(const ReadOptions& options, const KeyList& key_list,
+                          const TimeRange& time_range, ResultSet* result_set) {
   Status s;
   MutexLock l(&mutex_);
   SequenceNumber snapshot;
@@ -1284,16 +1287,21 @@ Status DBImpl::GetMVRange(const ReadOptions& options,
 
   {
     mutex_.Unlock();
-    if (TimeOverLapping(TimeRange(mem->GetStartValidTime(), mem->GetEndValidTime()), time_range)) {
+    if (TimeOverLapping(
+            TimeRange(mem->GetStartValidTime(), mem->GetEndValidTime()),
+            time_range)) {
       mem->GetMVRange(key_list, time_range, snapshot, result_set, &s);
     }
-    if (imm != nullptr && TimeOverLapping(TimeRange(imm->GetStartValidTime(), imm->GetEndValidTime()), time_range)) {
+    if (imm != nullptr && TimeOverLapping(TimeRange(imm->GetStartValidTime(),
+                                                    imm->GetEndValidTime()),
+                                          time_range)) {
       imm->GetMVRange(key_list, time_range, snapshot, result_set, &s);
     }
     // if (imm != nullptr && imm->GetStartValidTime() > time_range.lo) {
 
     // Need to search more files
-    s = current->GetMVRange(options, snapshot, key_list, time_range, result_set, &stats);
+    s = current->GetMVRange(options, snapshot, key_list, time_range, result_set,
+                            &stats);
     mutex_.Lock();
   }
 
@@ -1346,13 +1354,15 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 }
 
 // MVLevelDB version of Put/Delete
-Status DBImpl::PutMV(const WriteOptions& opt, const Slice& key, ValidTime vt, const Slice& val) {
+Status DBImpl::PutMV(const WriteOptions& opt, const Slice& key, ValidTime vt,
+                     const Slice& val) {
   WriteBatchMV batch_mv;
   batch_mv.Put(key, vt, val);
   return WriteMV(opt, &batch_mv);
 }
 
-Status DBImpl::DeleteMV(const WriteOptions& opt, const Slice& key, const ValidTime vt) {
+Status DBImpl::DeleteMV(const WriteOptions& opt, const Slice& key,
+                        const ValidTime vt) {
   WriteBatchMV batch_mv;
   batch_mv.Delete(key, vt);
   return WriteMV(opt, &batch_mv);
@@ -1572,7 +1582,7 @@ WriteBatchMV* DBImpl::BuildBatchGroupMV(WriterMV** last_writer) {
 
   *last_writer = first;
   std::deque<WriterMV*>::iterator iter = writers_mv_.begin();
-  ++iter; // Advance past "first"
+  ++iter;  // Advance past "first"
   for (; iter != writers_mv_.end(); ++iter) {
     WriterMV* w = *iter;
     if (w->sync && !first->sync) {
@@ -1656,8 +1666,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_ = new log::Writer(lfile);
       // TODO MVLevelDB copy MemTable
       if (options_.multi_version) {
-//        auto current = std::chrono::system_clock::now().time_since_epoch();
-//        std::time_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(current).count();
+        //        auto current =
+        //        std::chrono::system_clock::now().time_since_epoch();
+        //        std::time_t current_time =
+        //        std::chrono::duration_cast<std::chrono::milliseconds>(current).count();
         CreateImmutableMemTable(current_time_);
       } else {
         imm_ = mem_;
@@ -1725,8 +1737,9 @@ Status DBImpl::MakeRoomForWriteMV(bool force) {
       log_ = new log::Writer(lfile);
       // TODO: preserve latest data entries in MemTable
       if (options_.multi_version) {
-//        auto current = std::chrono::system_clock::now();
-//        std::time_t current_time = std::chrono::system_clock::to_time_t(current);
+        //        auto current = std::chrono::system_clock::now();
+        //        std::time_t current_time =
+        //        std::chrono::system_clock::to_time_t(current);
         CreateImmutableMemTable(current_time_);
       } else {
         imm_ = mem_;
@@ -1744,7 +1757,7 @@ Status DBImpl::MakeRoomForWriteMV(bool force) {
 // REQUIRES: mutex_ is held
 Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
   Status s;
-//  MutexLock l(&mutex_);
+  //  MutexLock l(&mutex_);
   mutex_.AssertHeld();
   assert(imm_ == nullptr);
 
@@ -1766,12 +1779,16 @@ Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
   MVInternalKey last_key;
   last_key.DecodeFrom(iter->key());
   batch->Put(last_key.user_key(), vt, iter->value());
+  // Enhanced DvD
+  // batch->Put(last_key.user_key(), last_key.valid_time(), Slice(""));
   iter->Next();
   for (; iter->Valid(); iter->Next()) {
     MVInternalKey key;
     key.DecodeFrom(iter->key());
     if (key.user_key() == last_key.user_key()) continue;
     batch->Put(key.user_key(), vt, iter->value());
+    // Enhanced DvD
+    // batch->Put(key.user_key(), key.valid_time(), Slice(""));
     last_key = key;
   }
 
