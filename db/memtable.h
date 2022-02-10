@@ -5,11 +5,12 @@
 #ifndef STORAGE_LEVELDB_DB_MEMTABLE_H_
 #define STORAGE_LEVELDB_DB_MEMTABLE_H_
 
-#include <string>
-
 #include "db/dbformat.h"
 #include "db/skiplist.h"
+#include <string>
+
 #include "leveldb/db.h"
+
 #include "util/arena.h"
 
 namespace leveldb {
@@ -57,7 +58,6 @@ class MemTable {
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value);
 
-
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
@@ -65,10 +65,10 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
   // MVLevelDB extra methods
-  void AddMV(SequenceNumber seq, ValueType type, const Slice& key,
-             ValidTime vt, const Slice& value);
-  bool GetMV(const MVLookupKey& key,  std::string* value, ValidTimePeriod* period,
-             Status* s);
+  void AddMV(SequenceNumber seq, ValueType type, const Slice& key, ValidTime vt,
+             const Slice& value);
+  bool GetMV(const MVLookupKey& key, std::string* value,
+             ValidTimePeriod* period, Status* s);
   bool GetMVRange(const KeyList& key_list, const TimeRange& time_range,
                   SequenceNumber snapshot, ResultSet* result_set, Status* s);
 
@@ -76,6 +76,9 @@ class MemTable {
   void SetEndValidTime(ValidTime t) { valid_time_hi_ = t; }
   ValidTime GetStartValidTime() const { return valid_time_lo_; }
   ValidTime GetEndValidTime() const { return valid_time_hi_; }
+
+  bool GetDuplicateStatus() { return duplicated_; }
+  void FinishDuplicate() { duplicated_ = true; }
 
  private:
   friend class MemTableIterator;
@@ -99,6 +102,8 @@ class MemTable {
   // MVLevelDB timestamp
   ValidTime valid_time_lo_ = 0;
   ValidTime valid_time_hi_ = kMaxValidTime;  // default: unlimited
+
+  bool duplicated_ = false;
 };
 
 }  // namespace leveldb

@@ -736,6 +736,10 @@ void DBImpl::BackgroundCall() {
   } else if (options_.multi_version) {
     // MVLevelDB: We only have 1 on-disk level.
     if (imm_ != nullptr) {
+      if (!imm_->GetDuplicateStatus()) {
+        // DuplicateFromImmutableMemTable();
+        // imm_->FinishDuplicate();
+      }
       CompactMemTable();
     }
   } else {
@@ -1768,8 +1772,17 @@ Status DBImpl::CreateImmutableMemTable(ValidTime vt) {
   mem_->Ref();
   mem_->SetStartValidTime(vt);
 
+  return s;
+}
+
+Status DBImpl::DuplicateFromImmutableMemTable() {
+  Status s;
+
+  MutexLock l(&mutex_);
   MemTable* imm = imm_;
   imm->Ref();
+
+  ValidTime vt = imm_->GetEndValidTime();
 
   WriteBatchMV* batch = new WriteBatchMV();
 

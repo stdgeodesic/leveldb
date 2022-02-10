@@ -11,14 +11,15 @@
 #include <string>
 
 // MVLevelDB
-#include <chrono>
-#include <ctime>
-
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
+#include <chrono>
+#include <ctime>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+
 #include "port/port.h"
 #include "port/thread_annotations.h"
 
@@ -54,20 +55,20 @@ class DBImpl : public DB {
   void CompactRange(const Slice* begin, const Slice* end) override;
 
   // Extra methods (for testing) that are not in the public DB interface
-  void SetDBCurrentTime(ValidTime vt) { current_time_ = vt;}
+  void SetDBCurrentTime(ValidTime vt) { current_time_ = vt; }
   ValidTime GetDBCurrentTime() { return current_time_; }
 
   // MVLevelDB Extra methods
   Status PutMV(const WriteOptions&, const Slice& key, ValidTime vt,
                const Slice& value) override;
   Status DeleteMV(const WriteOptions&, const Slice& key,
-                  const ValidTime vt) override ;
+                  const ValidTime vt) override;
   Status WriteMV(const WriteOptions& options, WriteBatchMV* updates) override;
   Status GetMV(const ReadOptions& options, const Slice& key, ValidTime vt,
                ValidTimePeriod* period, std::string* value) override;
-  Status GetMVRange(const ReadOptions& options, const KeyList& key_list, const TimeRange& time_range,
-               ResultSet* result_set) override;
-
+  Status GetMVRange(const ReadOptions& options, const KeyList& key_list,
+                    const TimeRange& time_range,
+                    ResultSet* result_set) override;
 
   // Compact any files in the named level that overlap [*begin,*end]
   void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
@@ -157,11 +158,12 @@ class DBImpl : public DB {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // MVLevelDB Extra private methods
-  Status MakeRoomForWriteMV(bool force)
-      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  Status MakeRoomForWriteMV(bool force) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   WriteBatchMV* BuildBatchGroupMV(WriterMV** last_writer)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status CreateImmutableMemTable(ValidTime vt);
+
+  Status DuplicateFromImmutableMemTable();
 
   void RecordBackgroundError(const Status& s);
 
